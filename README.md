@@ -20,6 +20,7 @@ Advancements in the field of RNA structure and interaction studies have enabled 
 A high-performance compute (HPC) cluster with 64-bit Unix-based operating system, x86-64 compatible processer, and at least 32 GB of RAM is recommended for completing this protocol in its entirety\*. Disk space requirements are dependent on the size of raw sequencing reads (fastq) and subsequent aligned and processed read (sam/bam) files. Mapping and CRSSANT steps require an HPC cluster with > 30 GB memory. Post-mapping analysis steps can be performed locally on a local system >= 4 compute threads and 8 GB of RAM\*\*. Note that large datasets require more memory and upwards of one week for mapping and CRSSANT duplex group (DG) and non-overlapping group (NG) assembly. 
 
 \* Operations described for pre-processing and mapping steps were performed on an HPC cluster (2.60 GHz 8-core Intel Xeon 2640v3, 32 GB, CentOS)
+
 \*\* DG analysis steps on a standard desktop (3.3 GHz 4-core Intel Core i5, 8 GB, Ubuntu 20.04) 
 
 ### **Software**
