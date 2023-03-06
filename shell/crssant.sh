@@ -9,7 +9,7 @@ module load perl/5.36.0
 
 ####################################################################################################
 # contact:    wlee9829@gmail.com
-# date:       2023_01_12
+# date:       2023_03_02
 # script:     crssant.sh
 #
 # This script standardizes the mapping of pre-processed data from PARIS- and SHARC-based sequencing.
@@ -28,10 +28,10 @@ module load perl/5.36.0
 # Bed:          path to bed file containing genes (e.g., /ref/bed)
 # Outprefix:    prefix for output file names, typically the barcode or sample name "R701" (e.g., test)
 ####################################################################################################
-ScriptPath=/project/zhipengl_72/wilsonhl/whl/pipeline/bin/crssant/CRSSANT-master/scripts
-WorkPath=/project/zhipengl_72/wilsonhl/whl/pipeline/data/crssant
-StaridxPath=/project/zhipengl_72/wilsonhl/whl/pipeline/ref/staridx/starhg38mask14add
-Bed=/project/zhipengl_72/wilsonhl/whl/pipeline/ref/bed/hs45S_genes.bed
+ScriptPath=/crssant/CRSSANT-master/scripts
+WorkPath=/data/crssant
+StaridxPath=/staridx/starhg38mask14add
+Bed=/hs45S_genes.bed
 Outprefix=0h
 ####################################################################################################
 

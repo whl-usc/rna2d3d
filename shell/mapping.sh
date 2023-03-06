@@ -29,11 +29,11 @@ module load perl/5.36.0
 # Fastq:        fastq file(s) to map (e.g., /preprocessing/test/x.fastq)
 # Outprefix:    prefix for output file names, typically the barcode or sample name "R701" (e.g., test)
 ####################################################################################################
-ScriptPath=/project/zhipengl_72/wilsonhl/whl/pipeline/bin
-WorkPath=/project/zhipengl_72/wilsonhl/whl/pipeline/data/mapping/0h
-StaridxPath=/project/zhipengl_72/wilsonhl/whl/pipeline/ref/staridx/starhg38mask14add
-Gtf=/project/zhipengl_72/wilsonhl/whl/pipeline/ref/hg38.gtf
-Fastq=/project/zhipengl_72/wilsonhl/whl/pipeline/data/mapping/HeLaamoto_exo0h.fastq
+ScriptPath=/bin
+WorkPath=/data/mapping/0h
+StaridxPath=/staridx/starhg38mask14add
+Gtf=/hg38.gtf
+Fastq=/data/mapping/HeLaamoto_exo0h.fastq
 Outprefix=0h
 ####################################################################################################
 

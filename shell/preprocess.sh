@@ -9,7 +9,7 @@ module load perl/5.36.0
 
 ####################################################################################################
 # contact:    wlee9829@gmail.com
-# date:       2022_11_04
+# date:       2022_01_14
 # script:     pre_process.sh
 #    
 # Shell script to standardize pre-processing PARIS- and SHARC-based sequencing data. Trimmomatic-0.36 
@@ -28,10 +28,10 @@ module load perl/5.36.0
 # fastq:	path to "x".fastq.gz, the raw data file (e.g., /preprocessing/PARIS.fastq.gz)
 # Outprefix:	prefix for output file names, "x" (e.g., PARIS)
 ####################################################################################################
-ScriptPath=/project/zhipengl_72/wilsonhl/whl/pipeline/bin
-WorkPath=/project/zhipengl_72/wilsonhl/whl/pipeline/data/preprocessing/test
-fasta=/project/zhipengl_72/wilsonhl/whl/pipeline/ref/fasta/P6SolexaRC35.fa
-fastq=/project/zhipengl_72/wilsonhl/whl/pipeline/data/raw_data/L001_R1.fastq
+ScriptPath=/bin
+WorkPath=/data/preprocessing/
+fasta=/ref/fasta/P6SolexaRC35.fa
+fastq=/data/raw_data/L001_R1.fastq
 Outprefix=test
 ####################################################################################################
 
@@ -68,8 +68,6 @@ function preprocess() {
 	done
 }
 ####################################################################################################
-
 preprocess
 echo "Preprocessing completed."
-
 ####################################################################################################
