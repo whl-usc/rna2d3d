@@ -2,7 +2,6 @@
 
 <!-- PROJECT NAME -->
 # rna2d3d
----
 
 The rna2d3d repository contains scripts used for analyzing data generated from RNA crosslinking, proximity-ligation, high-throughput sequencing experiments.
 
@@ -11,12 +10,8 @@ The rna2d3d repository contains scripts used for analyzing data generated from R
 
 ...Information regarding the pipeline tbd...
 
----
----
-
 <!-- GETTING STARTED -->
 # Getting Started
----
 
 ## Prerequisites
 
@@ -46,8 +41,6 @@ A high-performance compute (HPC) cluster with 64-bit Unix-based operating system
 7. [samtools (v1.1+)](https://www.htslib.org/download/)
 8. [STAR-2.7.1a](https://github.com/alexdobin/STAR/archive/refs/tags/2.7.1a.tar.gz)
 9. [Trimmomatic-0.36](http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/Trimmomatic-0.36.zip)
-
----
 
 <!-- PIPELINE STEPS -->
 # Data pre-processing
@@ -121,7 +114,6 @@ rm -f x_nonchimeric_temp.sam x_chimeric_temp.sam x_nonchimeric_pri.bam x_nonchim
 ## STEP 3 : Classify primary reads
 
 ```python3 gaptypes.py x_1_pri.sam x_1_pri -1 15 1 ```
-
 
 ## STEP 4 : Rearrange softclipped continuous reads
 
@@ -262,9 +254,6 @@ bedtools genomecov -bg -split -strand - -ibam x_pri_crssant.bam -g staridxPath/c
 ## OPTIONAL : Separate reads tagged by identifier
 
 ```awk '$0~/^@/ || $1~/-TAG/' x_pri_crssant.cliques.t_o0.2.sam > x_ crssant_TAG1.sam```
-
----
----
 
 # Ribosomal RNA (rRNA) DG asssembly
 
