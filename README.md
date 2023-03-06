@@ -43,6 +43,8 @@ A high-performance compute (HPC) cluster with 64-bit Unix-based operating system
 8. [STAR-2.7.1a](https://github.com/alexdobin/STAR/archive/refs/tags/2.7.1a.tar.gz)
 9. [Trimmomatic-0.36](http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/Trimmomatic-0.36.zip)
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 <!-- PIPELINE STEPS -->
 # Data pre-processing
 
@@ -67,6 +69,8 @@ Post-sequencing data is pre-processed to remove sequencing adapters, short reads
 ## STEP 5 : FastQC 
 
 Visuallze inspect the quality of the pre-processed data using FastQC. The "per base sequence quality plot" average quality score should be high across all read positions (>=30). Adapter content should be close to 0.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 # STAR mapping to reference genome
 
@@ -213,6 +217,8 @@ samtools view -bS -o x_prigap1.bam x_prigap1.sam
 python CountCdsUtr.py x_prigap1.bam CdsUtr.bed none x_pri
 ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 # CRSSANT assembly
 
 CRSSANT optimizes short-read mapping and clusters gap1 and trans alignments into duplex groups (DGs) and non-overlapping groups (NGs). 
@@ -255,6 +261,8 @@ bedtools genomecov -bg -split -strand - -ibam x_pri_crssant.bam -g staridxPath/c
 ## OPTIONAL : Separate reads tagged by identifier
 
 ```awk '$0~/^@/ || $1~/-TAG/' x_pri_crssant.cliques.t_o0.2.sam > x_ crssant_TAG1.sam```
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 # Ribosomal RNA (rRNA) DG asssembly
 
