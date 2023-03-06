@@ -67,5 +67,3 @@ crssant
 echo "CRSSANT completed, see $Outprefix'_pri_crssant.cliques.t_o0.2.sam'"
 echo
 ####################################################################################################
-
-
