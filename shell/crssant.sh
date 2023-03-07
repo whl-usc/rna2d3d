@@ -29,7 +29,7 @@ module load perl/5.36.0
 # Outprefix:    prefix for output file names, typically the barcode or sample name "R701" (e.g., test)
 #		Note -- "Outprefix" must be the SAME as the one used in the mapping.sh  
 ####################################################################################################
-ScriptPath=/crssant/CRSSANT-master/scripts
+ScriptPath=/bin/
 WorkPath=/data/crssant
 StaridxPath=/staridx/starhg38mask14add
 Bed=/hs45S_genes.bed
@@ -42,7 +42,7 @@ Outprefix=0h
 function crssant() {
 
 	## Merge the gap1_filtered and trans/rri.sam files to crssant.sam
-	python3 $ScriptPath/merger.py $Outprefix'_prigap1_filtered.sam' $Outprefix'_pritrans.sam' $Outprefix'_pri_crssant.sam'
+	python3 $ScriptPath/crssant/CRSSANT-master/scripts/merger.py $Outprefix'_prigap1_filtered.sam' $Outprefix'_pritrans.sam' $Outprefix'_pri_crssant.sam'
 	echo "SAM files combined..."
 	echo
 	## Generate a sorted.bam for IGV
@@ -60,7 +60,7 @@ function crssant() {
 	## CRSSANT analysis
 	echo "Starting CRSSANT analysis..."
 	echo
-	python3 $ScriptPath/crssant.py -cluster cliques -t_o 0.2 -out ./ $Outprefix'_pri_crssant.sam' $Bed $Outprefix'_plus.bedgraph',$Outprefix'_minus.bedgraph'
+	python3 $ScriptPath/crssant/CRSSANT-master/scripts/crssant.py -cluster cliques -t_o 0.2 -out ./ $Outprefix'_pri_crssant.sam' $Bed $Outprefix'_plus.bedgraph',$Outprefix'_minus.bedgraph'
 	##mkdir $WorkPath/$Outprefix & mv *_crssant* $WorkPath/$Outprefix && mv *.bedgraph $WorkPath/$Outprefix
 }
 ####################################################################################################
