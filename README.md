@@ -36,6 +36,7 @@ A high-performance compute (HPC) cluster with 64-bit Unix-based operating system
     * numpy
     * pandas
     * pysam
+    * SciKit-learn
     * SciPy
     * seaborn
 7. [samtools (v1.1+)](https://www.htslib.org/download/)
