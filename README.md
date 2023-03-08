@@ -2,21 +2,16 @@
 
 <!-- PROJECT NAME -->
 # rna2d3d
----
 
 The rna2d3d repository contains scripts used for analyzing data generated from RNA crosslinking, proximity-ligation, high-throughput sequencing experiments.
 
 <!-- ABOUT THE PROJECT -->
 ## About the Project
 
-...Information regarding the pipeline tbd...
-
----
----
+Advancements in the field of RNA structure and interaction studies have enabled high throughput analysis of RNAs, revealing base pairing and higher order interactions. Despite the progress on the experimental methods for studying RNA secondary and intermolecular complexes, computational analysis of such data generated has remained a challenge, typically limited to specific studies. One subset of such experimental methods, the crosslinking- and proximity-ligation based approaches generates non-continuous reads that indicate specific RNA structures and interactions. Here, we detail a computational pipeline for analyzing the non-continuous "gapped" reads from a variety of methods that employ the crosslinking-ligation principle (*see* [PARIS](https://pubmed.ncbi.nlm.nih.gov/27180905/), [PARIS2](https://www.nature.com/articles/s41467-021-22552-y), [LIGR](https://pubmed.ncbi.nlm.nih.gov/27184080/), [SPLASH](https://pubmed.ncbi.nlm.nih.gov/27184079/), [SHARC](https://www.nature.com/articles/s41467-022-28602-3)). Briefly, the pipeline functions as follows. First, raw data are processed to remove sequencing adapters and PCR duplicates (and if applicable. separated by barcode). Next, all reads are permissively mapped to a custom reference genome using STAR. Then, primary alignments are extracted, classified, and assembled to duplex groups (DGs), non-overlapping (NGs), or tri-segment groups (TGs). Finally, DGs can be visualized using IGV, converted to stemloop groups, and have endpoints (read arm stopping points) determined. Furthermore, the nucleotide frequncy or SHAPE reactivity of DG arms can be determined. 
 
 <!-- GETTING STARTED -->
 # Getting Started
----
 
 ## Prerequisites
 
@@ -25,6 +20,7 @@ The rna2d3d repository contains scripts used for analyzing data generated from R
 A high-performance compute (HPC) cluster with 64-bit Unix-based operating system, x86-64 compatible processer, and at least 32 GB of RAM is recommended for completing this protocol in its entirety\*. Disk space requirements are dependent on the size of raw sequencing reads (fastq) and subsequent aligned and processed read (sam/bam) files. Mapping and CRSSANT steps require an HPC cluster with > 30 GB memory. Post-mapping analysis steps can be performed locally on a local system >= 4 compute threads and 8 GB of RAM\*\*. Note that large datasets require more memory and upwards of one week for mapping and CRSSANT duplex group (DG) and non-overlapping group (NG) assembly. 
 
 \* Operations described for pre-processing and mapping steps were performed on an HPC cluster (2.60 GHz 8-core Intel Xeon 2640v3, 32 GB, CentOS)
+
 \*\* DG analysis steps on a standard desktop (3.3 GHz 4-core Intel Core i5, 8 GB, Ubuntu 20.04) 
 
 ### **Software**
@@ -40,14 +36,14 @@ A high-performance compute (HPC) cluster with 64-bit Unix-based operating system
     * numpy
     * pandas
     * pysam
-    * scikit-learn
+    * SciKit-learn
     * SciPy
     * seaborn
 7. [samtools (v1.1+)](https://www.htslib.org/download/)
 8. [STAR-2.7.1a](https://github.com/alexdobin/STAR/archive/refs/tags/2.7.1a.tar.gz)
 9. [Trimmomatic-0.36](http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/Trimmomatic-0.36.zip)
 
----
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 <!-- PIPELINE STEPS -->
 # Data pre-processing
@@ -73,6 +69,8 @@ Post-sequencing data is pre-processed to remove sequencing adapters, short reads
 ## STEP 5 : FastQC 
 
 Visuallze inspect the quality of the pre-processed data using FastQC. The "per base sequence quality plot" average quality score should be high across all read positions (>=30). Adapter content should be close to 0.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 # STAR mapping to reference genome
 
@@ -121,7 +119,6 @@ rm -f x_nonchimeric_temp.sam x_chimeric_temp.sam x_nonchimeric_pri.bam x_nonchim
 ## STEP 3 : Classify primary reads
 
 ```python3 gaptypes.py x_1_pri.sam x_1_pri -1 15 1 ```
-
 
 ## STEP 4 : Rearrange softclipped continuous reads
 
@@ -220,6 +217,8 @@ samtools view -bS -o x_prigap1.bam x_prigap1.sam
 python CountCdsUtr.py x_prigap1.bam CdsUtr.bed none x_pri
 ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 # CRSSANT assembly
 
 CRSSANT optimizes short-read mapping and clusters gap1 and trans alignments into duplex groups (DGs) and non-overlapping groups (NGs). 
@@ -263,8 +262,7 @@ bedtools genomecov -bg -split -strand - -ibam x_pri_crssant.bam -g staridxPath/c
 
 ```awk '$0~/^@/ || $1~/-TAG/' x_pri_crssant.cliques.t_o0.2.sam > x_ crssant_TAG1.sam```
 
----
----
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 # Ribosomal RNA (rRNA) DG asssembly
 
@@ -318,9 +316,6 @@ samtools index x_pri_sorted.bam
 ```python SHAPE_freq.py inputsam shape_bedgraph DG_reads_cutoff DGcommon_ratio seqlen extendlen DG/reads outputprefix```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
-<!-- END -->
-## END
 
 <!-- CONTACT -->
 ## Contact
