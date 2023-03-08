@@ -43,7 +43,7 @@ Outprefix=0h
 function crssant() {
 
 	## Merge the gap1_filtered and trans/rri.sam files to crssant.sam
-	python3 $ScriptPath/crssant/CRSSANT-master/scripts/merger.py $Outprefix'_prigap1_filtered.sam' $Outprefix'_pritrans.sam' $Outprefix'_pri_crssant.sam'
+	python3 $ScriptPath/crssant/CRSSANT-master/scripts/merger_v2.py $Outprefix'_prigap1_filtered.sam' $Outprefix'_pritrans.sam' $Outprefix'_pri_crssant.sam'
 	echo "SAM files combined..."
 	echo
 	## Generate a sorted.bam for IGV
