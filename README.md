@@ -301,7 +301,13 @@ samtools index x_pri_sorted.bam
 
 ## STEP 5 : DG base pairs to stemloop arcs
 
-```python dg_bp.py ref bedpe outname y/n DG_number```
+``` 
+python bedpetobed12.py x.cliques.t_o0.2_dg.bedpe x.cliques.t_o0.2_dg.bed
+sortBed -i x.cliques.t_o0.2_dg.bed > x.cliques.t_o0.2_dg_sorted.bed
+```
+
+Add header line:
+```track graphType=arc```
 
 ## STEP 6 : Read coverage and DG arm endpoints
 
