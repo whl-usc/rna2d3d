@@ -223,6 +223,8 @@ python CountCdsUtr.py x_prigap1.bam CdsUtr.bed none x_pri
 
 CRSSANT optimizes short-read mapping and clusters gap1 and trans alignments into duplex groups (DGs) and non-overlapping groups (NGs). 
 
+Most scripts here have usage instructions written into them - run without arguments to show. EX: python <script_name>.py
+
 ## STEP 1 : Combined filtered gap1 and trans SAM files
 
 ```python merger.py x_prigap1_filtered.sam x_pritrans.sam x_pri_crssant.sam ```
@@ -299,7 +301,7 @@ samtools sort x_pri.bam x_pri_sorted.bam
 samtools index x_pri_sorted.bam
 ```
 
-## STEP 5 : DG base pairs to stemloop arcs
+## STEP 5a : DG base pairs to stemloop arcs
 
 ``` 
 python bedpetobed12.py x.cliques.t_o0.2_dg.bedpe x.cliques.t_o0.2_dg.bed
@@ -308,6 +310,12 @@ sortBed -i x.cliques.t_o0.2_dg.bed > x.cliques.t_o0.2_dg_sorted.bed
 
 Add header line:
 ```track graphType=arc```
+
+## STEP 5b : DG base pairs to stemloop arcs
+
+```
+python dg2arc.py ref .bedpe outname y/n DG_number
+```
 
 ## STEP 6 : Read coverage and DG arm endpoints
 
