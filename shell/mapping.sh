@@ -139,17 +139,25 @@ function mapping() {
         python3 $ScriptPath/crssant/CRSSANT-master/scripts/gapfilter.py $Gtf $Outprefix'_prigap1.sam' $Outprefix'_prigap1_filtered.sam' 13 yes
         python3 $ScriptPath/crssant/CRSSANT-master/scripts/gapfilter.py $Gtf $Outprefix'_prigapm.sam' $Outprefix'_prigapm_filtered.sam' 13 yes
 
-        ## Plot the length of gaps (N)
+        ## Plot the length of gaps (N): gaplendist_mod.py
         cat $Outprefix'_prigap1_filtered.sam' $Outprefix'_prigapm_filtered.sam' > $Outprefix'_prigaps_filtered.sam'
-        python3 $ScriptPath/crssant/CRSSANT-master/scripts/gaplendist_v2.py $Outprefix'_prigaps_filtered.sam' sam $Outprefix'.list' all
-        python3 $ScriptPath/crssant/CRSSANT-master/scripts/gaplendist_v2.py $Outprefix'.list' list $Outprefix'_gaplen.pdf' all
-        rm -f $Outprefix'_prigaps_filtered.sam' $Outprefix'.list'
+        python3 $ScriptPath/crssant/CRSSANT-master/scripts/gaplendist_mod.py $Outprefix'_prigaps_filtered.sam' $Outprefix.pdf 100
+        rm -f $Outprefix'_prigaps_filtered.sam'
+        
+        ## Plot the length of gaps (N): gaplendist_v2.py
+        ## python3 $ScriptPath/crssant/CRSSANT-master/scripts/gaplendist_v2.py $Outprefix'_prigaps_filtered.sam' sam $Outprefix'.list' all
+        ## python3 $ScriptPath/crssant/CRSSANT-master/scripts/gaplendist_v2.py $Outprefix'.list' list $Outprefix'_gaplen.pdf' all
+        ## rm -f $Outprefix'_prigaps_filtered.sam' $Outprefix'.list'
 
-        ## Plot size distribution of each segment
+        ## Plot size distribution of each segment: seglendist_mod.py
         cat $Outprefix'_prigap1_filtered.sam' $Outprefix'_prigapm_filtered.sam' $Outprefix'_pritrans.sam' > $Outprefix'_prifiltered.sam'
-        python3 $ScriptPath/crssant/CRSSANT-master/scripts/seglendist_v2.py $Outprefix'_prifiltered.sam' sam $Outprefix'_prifiltered.list'
-        python3 $ScriptPath/crssant/CRSSANT-master/scripts/seglendist_v2.py $Outprefix'_prifiltered.list' list $Outprefix'_seglen.pdf'
-        rm -f $Outprefix'_prifiltered.sam' $Outprefix'_prifiltered.list'
+        python3 $ScriptPath/crssant/CRSSANT-master/scripts/seglendist_mod.py $Outprefix'_prifiltered.sam' $Outprefix.pdf
+        rm -f $Outprefix'_prifiltered.sam'
+        
+        ## Plot size distribution of each segment: seglendist_v2.py
+        ## python3 $ScriptPath/crssant/CRSSANT-master/scripts/seglendist_v2.py $Outprefix'_prifiltered.sam' sam $Outprefix'_prifiltered.list'
+        ## python3 $ScriptPath/crssant/CRSSANT-master/scripts/seglendist_v2.py $Outprefix'_prifiltered.list' list $Outprefix'_seglen.pdf'
+        ## rm -f $Outprefix'_prifiltered.sam' $Outprefix'_prifiltered.list'
 
         mkdir map_1 map_2 && mv *_1_* map_1 && mv *_2_* map_2
 }
