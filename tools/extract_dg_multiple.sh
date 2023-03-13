@@ -5,12 +5,11 @@
 
 ################   sub-function (Don't change any parameters)   ##########################################
 function DG_extract() {
-	
-    ## extract the DGs based on number
+	## extract the DGs based on number
 	awk '$20 == "DG:Z:18S,5.8S,'$DG'" {print}' *.cliques.t_o0.2.sam > 'DG'$DG'_18s_58s.sam'
 	awk '$0~/^@/ || $1~/-701/' 'DG'$DG'_18s_58s.sam' > DG$DG'_c18s_58s.sam'
 	awk '$0~/^@/ || $1~/-702/' 'DG'$DG'_18s_58s.sam' > DG$DG'_e18s_58s.sam'
-	cat header_only.sam DG$DG'_c18s_58s.sam' > DG$DG'_ctrl_18s_58s.sam' 
+   	cat header_only.sam DG$DG'_c18s_58s.sam' > DG$DG'_ctrl_18s_58s.sam' 
    	cat header_only.sam DG$DG'_e18s_58s.sam' > DG$DG'_exo_18s_58s.sam' 
   	
 	python3 endpoints.py DG$DG'_ctrl_18s_58s.sam'
@@ -24,15 +23,15 @@ function DG_extract() {
   	
 	python3 endpoints.py DG$DG'_ctrl_28s_58s.sam'
 	python3 endpoints.py DG$DG'_exo_28s_58s.sam'
+	
+	awk '$20 == "DG:Z:18S,28SS,'$DG'" {print}' *.cliques.t_o0.2.sam > 'DG'$DG'_18s_28s.sam'
+	awk '$0~/^@/ || $1~/-701/' 'DG'$DG'_18s_28s.sam' > DG$DG'_c18s_28s.sam'
+	awk '$0~/^@/ || $1~/-702/' 'DG'$DG'_18s_28s.sam' > DG$DG'_e18s_28s.sam'
+	cat header_only.sam DG$DG'_c18s_28s.sam' > DG$DG'_ctrl_18s_28s.sam'
+	cat header_only.sam DG$DG'_e18s_28s.sam' > DG$DG'_exo_18s_28s.sam'
 
-    awk '$20 == "DG:Z:18S,28SS,'$DG'" {print}' *.cliques.t_o0.2.sam > 'DG'$DG'_18s_28s.sam'
-    awk '$0~/^@/ || $1~/-701/' 'DG'$DG'_18s_28s.sam' > DG$DG'_c18s_28s.sam'
-    awk '$0~/^@/ || $1~/-702/' 'DG'$DG'_18s_28s.sam' > DG$DG'_e18s_28s.sam'
-    cat header_only.sam DG$DG'_c18s_28s.sam' > DG$DG'_ctrl_18s_28s.sam'
-    cat header_only.sam DG$DG'_e18s_28s.sam' > DG$DG'_exo_18s_28s.sam'
-
-    python3 endpoints.py DG$DG'_ctrl_18s_28s.sam'
-    python3 endpoints.py DG$DG'_exo_18s_28s.sam'
+	python3 endpoints.py DG$DG'_ctrl_18s_28s.sam'
+	python3 endpoints.py DG$DG'_exo_18s_28s.sam'
 
 	python3 endpoint_check.py $DG
 
