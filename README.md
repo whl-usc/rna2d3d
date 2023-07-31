@@ -297,7 +297,7 @@ python crssant.py -cluster cliques -t_o 0.2 -out ./ x_hs45S_30000.sam Bed x_plus
 
 ```
 samtools view -bS -o x_pri.bam x_pri.sam
-samtools sort x_pri.bam x_pri_sorted.bam
+samtools sort -o x_pri_sorted.bam x_pri.bam
 samtools index x_pri_sorted.bam
 ```
 
