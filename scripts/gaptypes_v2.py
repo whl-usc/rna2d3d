@@ -504,7 +504,7 @@ tempcount=0
 for QNAME in gapalign:
     tempcount+=1
     if not tempcount%1000000:
-        logstr=timenow()+" Processed "+str(tempcount)+" gaped reads ...\n"
+        logstr=timenow()+" Processed "+str(tempcount)+" gapped reads ...\n"
         logfile.write(logstr); print(logstr),
     for line in gapalign[QNAME]:
         ###A. export alignments with every segment >minlen or pass penalty 
