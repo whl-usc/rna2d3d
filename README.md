@@ -121,8 +121,9 @@ rm -f x_nonchimeric_temp.sam x_chimeric_temp.sam x_nonchimeric_pri.bam x_nonchim
 ```python3 gaptypes.py x_1_pri.sam x_1_pri -1 15 1 ```
 
 ## STEP 4 : Rearrange softclipped continuous reads
+### Note: Use the softreverse_v2.py script provided in the rna2d3d folder. The original softreverse.py had a typo.
 
-```python softreverse.py x_1_pricont.sam softrev.fastq ```
+```python softreverse_v2.py x_1_pricont.sam softrev.fastq ```
 
 ## STEP 5 : STAR mapping (second round, softrev.fastq as input)
 
