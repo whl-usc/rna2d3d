@@ -25,18 +25,19 @@ def process_sam_file(sam_file, label, sam_type, out_sam):
             align = line.rstrip('\n').split()
             if len(align) > 0:
                 if sam_type == "trans":
-                    out_sam.write(f"{align[0]}-{label}\t{'\t'.join(align[1:])}\n")
+                    out_sam.write("{}-{}\\t{}\\n".format(align[0], label, '\\t'.join(align[1:])))
                 else:
-                    out_sam.write(f"{align[0]}-{label}\t{'\t'.join(align[1:19])}\n")
+                    out_sam.write("{}-{}\\t{}\\n".format(align[0], label, '\\t'.join(align[1:19])))
 
 # Usage instructions:
 def main():
     if len(sys.argv) < 6:
-        print("Usage: python merger_sams.py first_sam second_sam label samtype outputfile")
+        print("Usage: python merger_sams.py first_sam second_sam label sam_type outputfile")
         print("first_sam:   sam file from the first round mapping")
         print("second_sam:  sam file from the second round mapping")
         print("label:       label that will be added after readID, or 'none'")
-        print("samtype:     cont, gap1, gapm, homo, trans")
+        print("sam_type:    cont, gap1, gapm, homo, trans")
+        print("outputfile:  the name of the output file")
         sys.exit()
 
     sam1 = open(sys.argv[1], "r")
