@@ -27,9 +27,6 @@ if len(sys.argv) < 5:
     print("outsam:     output file name")
     sys.exit()
 
-# Processing the sam file
-print(timenow() + " Started merger.py ...")
-
 sam1 = open(sys.argv[1],"r")
 sam2 = open(sys.argv[2],"r")
 label = sys.argv[3]
