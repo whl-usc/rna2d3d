@@ -25,10 +25,9 @@ def process_sam_file(sam_file, label, sam_type, out_sam):
             align = line.rstrip('\n').split()
             if len(align) > 0:
                 if sam_type == "trans":
-                    out_sam.write(f"{align[0]}-{label}\t{'\t'.join(align[1:])}\n")
+                    outsam.write(align[0]+'-'+label+'\t'+'\t'.join(align[1:])+'\n')
                 else:
-                    out_sam.write(f"{align[0]}-{label}\t{'\t'.join(align[1:19])}\n")
-
+                    outsam.write(align[0]+'-'+label+'\t'+'\t'.join(align[1:19])+'\n')
 # Usage instructions:
 def main():
     if len(sys.argv) < 6:
