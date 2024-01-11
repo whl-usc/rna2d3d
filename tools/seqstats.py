@@ -34,7 +34,7 @@ def check_index(output_csv):
         df_output = pd.DataFrame()
 
     # Defining the index column
-    required_rows = ['Raw reads', 'Round 1', 'Input reads', 'Average input read length', 'Uniquely mapped reads', 'Multi-mapped reads', 'Too many mismatches', 'Too short reads', 'Other unmapped', 'Round 2', 'Input reads', 'Average input read length', 'Uniquely mapped reads', 'Multi-mapped reads', 'Too many mismatches', 'Too short reads', 'Other unmapped', 'Combined', 'Input reads', 'Average input read length', 'Uniquely mapped reads', 'Multi-mapped reads', 'Too many mismatches', 'Too short reads', 'Other unmapped', 'Gap type analysis', 'Total input alignment number', 'Contiuous alignments (no gaps)', 'Two-segment gapped alignments', 'Multi-segment gapped alignments', 'Other chimeric (different str/chr)', 'Overlapping chimeric (homotypic)', 'Bad alignments', 'Filtering for gap_1','Total single gapped alignments', 'Alignments with at least 1 good gap', 'Alignment with at least 2 good gaps', 'Filtering for gap_m', 'Total multiple gapped alignments', 'Alignments with at least 1 good gap', 'Alignment with at least 2 good gaps', 'Total number of gaps', 'Median gap length (all)', 'Median gap length (dist. plot)', 'Total number of segments', 'Median segment length']
+    required_rows = ['Raw reads', 'Round 1', 'Input reads', 'Average input read length', 'Uniquely mapped reads', 'Multi-mapped reads', 'Too many mismatches', 'Too short reads', 'Other unmapped', 'Round 2', 'Input reads', 'Average input read length', 'Uniquely mapped reads', 'Multi-mapped reads', 'Too many mismatches', 'Too short reads', 'Other unmapped', 'Combined', 'Input reads', 'Average input read length', 'Uniquely mapped reads', 'Multi-mapped reads', 'Too many mismatches', 'Too short reads', 'Other unmapped', 'Gap type analysis', 'Total input alignment number', 'Continuous alignments (no gaps)', 'Two-segment gapped alignments', 'Multi-segment gapped alignments', 'Other chimeric (different str/chr)', 'Overlapping chimeric (homotypic)', 'Bad alignments', 'Filtering for gap_1','Total single gapped alignments', 'Alignments with at least 1 good gap', 'Alignment with at least 2 good gaps', 'Filtering for gap_m', 'Total multiple gapped alignments', 'Alignments with at least 1 good gap', 'Alignment with at least 2 good gaps', 'Total number of gaps', 'Median gap length (all)', 'Median gap length (dist. plot)', 'Total number of segments', 'Median segment length']
     
     # Check for and make the index column if it does not already exist
     if 'Metrics' not in df_output.columns:
@@ -58,7 +58,6 @@ def fastq_count(file_path):
         except subprocess.CalledProcessError as e:
             read_count = 0
             print(timenow(), f" Error counting reads for {file_path}. Omiting count.")
-
     else:
         read_count = 0
         print(timenow(), f" Fastq file was not provided. Omitting count.")
@@ -95,7 +94,7 @@ def mapping_info(directory_name):
         mapping_data.rename(columns={0: directory_name}, inplace=True)
 
     else:
-        print(timenow(),f" Error in parsing mapping data. Check to see if there is a mistake in the directory_name and if Log.final.out files exist.")
+        print(timenow(),f" Error in parsing mapping data. Check to see if there is a mistake in the directory_name, if you are in the directory where directory_name exists, and if Log.final.out files exist.")
 
     return mapping_data
 
@@ -117,22 +116,43 @@ def split_slurm(file_path, directory_name):
                         inside_section = False
 
         directory_names = [re.search(r"name='([^']+)'", lists[74].strip()).group(1).replace("_pri_crssant.sam", "") for lists in section if re.search(r"name='([^']+)'", lists[74].strip())]
-        slurm = pd.DataFrame()
-        for group, section in zip(directory_names, section):
-            if group == directory_name:         
-                select_rows = list(range(29, 36)) + list(range(47, 50)) + list(range(60, 63)) + list(range(67, 72))
-                slurm_select = pd.DataFrame(section).iloc[select_rows].applymap(lambda x: x.strip().split()[-1] if isinstance(x, str) else x)
-                slurm_select.fillna('', inplace=True)
 
-                ins_newline = [28, 36, 50]
-                for row in ins_newline:
-                    slurm_select.loc[row, :] = ''
-                slurm = slurm_select.sort_index().reset_index(drop=True)
-                slurm.rename(columns={0: directory_name}, inplace=True)
+        info_dict = {
+            "Total input alignment number": [],
+            "Continuous alignments (no gaps)": [],
+            "Two-segment gapped alignments": [],
+            "Multi-segment gapped alignments": [],
+            "Other chimeric (different str/chr)": [],
+            "Overlapping chimeric (homotypic)": [],
+            "Bad alignments": [],
+            "  Total alignments": [],
+            "Alignments with at least 1 good gaps": [],
+            "Alignments with at least 2 good gaps": [],
+            "Total number of gaps": [],
+            "gap length median for all": [],
+            "gap length median of selected ones for the distribution plot": [],
+            "Total number of segments": [],
+            "Segment length median": []
+        }
+
+        for group, section in zip(directory_names, section):
+            if group == directory_name:
+                for line in section:
+                    for keyword in info_dict:
+                        if keyword in line:
+                            value = line.split()[-1]
+                            info_dict[keyword].append(value)
+
+        select = pd.DataFrame(list(info_dict.values()), index=info_dict.keys())
+        sect1= select.iloc[0:10, 0]; sect2 = select.iloc[7:10, 1]; sect3 = select.iloc[10:16, 0]
+        combined = pd.DataFrame(); blank= pd.DataFrame(index=range(1))
+        slurm = pd.concat([combined, blank, sect1, blank, sect2, blank, sect3])
+        slurm = slurm.rename(columns={0: directory_name}).reset_index(drop=True)
+    
     else:
-        slurm = pd.DataFrame(0, index=range(23), columns=[directory_name])
+        slurm = pd.DataFrame(0, index=range(22), columns=[directory_name])
         print(timenow(),f" slurm.out file was not provided. Omitting count.")
-        
+    
     return slurm
 
 def combine_outputs(directory_name, fastq_path, slurm_path, output_csv):
@@ -143,6 +163,8 @@ def combine_outputs(directory_name, fastq_path, slurm_path, output_csv):
     slurm_data = split_slurm(slurm_path, directory_name)
     combined_df = pd.concat([mapping_data, slurm_data], axis=0, ignore_index=True)
     combined_df.loc[0, directory_name] = read_count
+
+    print(combined_df)
 
     if directory_name in existing_data.columns:
         print(timenow(),f" Data already exists for {directory_name}, updating values instead.")
@@ -171,6 +193,8 @@ def main():
         2. Path to fastq file
         3. Path to slurm-*.out
         4. Output name for CSV
+
+        The script should be run in the parent directory where "directory_name" is located.
         """),
         usage="\npython3 %(prog)s [-h] [-m] directory_name fastq_path slurm_path output_csv")
 
