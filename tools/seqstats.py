@@ -24,9 +24,26 @@ import textwrap
 ###########################################################################
 
 def timenow():
+    """
+    Returns the current timestamp as a string.
+
+    Returns:
+        str: Current timestamp in format 'YYY-MM-DD HH:MM:SS'.
+    """
     return str(datetime.now())[:-7]
 
 def check_index(output_csv):
+    """
+    Checks the existence of the specified CSV file and its structure. If the file
+    does not exist or is missing certain rows, it adds necessary rows to maintain
+    a consistent structure.
+
+    Args:
+        output_csv (str): The PATH to the CSV file.
+
+    Returns:
+        None
+    """
     try:
         df_output = pd.read_csv(output_csv)
 
@@ -46,15 +63,20 @@ def check_index(output_csv):
     return df_output.to_csv(output_csv, index=False)
 
 def fastq_count(file_path):
+    """
+    Counts the number of reads in a FASTQ file.
+
+    Args:
+        file_path (str): Path to the FASTQ file.
+
+    Returns:
+        int: Number of reads in the FASTQ file.
+    """
+    # Try extracting fastq count data from either .fastq or .fastq.gz file. Divide total line numbers by 4 to get a count.
     if os.path.exists(file_path):
         try:
-            if file_path.endswith('.gz'):
-                with gzip.open(file_path, "rt", encoding=None) as gz_file:
-                    line_count_output = subprocess.check_output(['wc', '-l'], stdin=gz_file, universal_newlines=True)
-            else:
-                    line_count_output = subprocess.check_output(['wc', '-l'], stdin=file_path, universal_newlines=True)
-            line_count = int(line_count_output.split()[0])
-            read_count = line_count // 4
+            with (gzip.open(file_path, "rt", encoding=None) if file_path.endswith('.gz') else open(file_path, 'r')) as file:
+                read_count = sum(1 for line in file if line.startswith('@'))
         except subprocess.CalledProcessError as e:
             read_count = 0
             print(timenow(), f" Error counting reads for {file_path}. Omiting count.")
@@ -65,6 +87,15 @@ def fastq_count(file_path):
     return read_count
 
 def mapping_info(directory_name):
+    """
+    Extracts mapping information from Log.final.out files in the specified directories.
+
+    Args:
+        directory_name (str): Name of the directory containing map_1 and map_2.
+
+    Returns:
+        pd.DataFrame: DataFrame containing mapping information.
+    """
     mapping_data = pd.DataFrame()
     if os.path.exists(directory_name):
         for i in range(1, 3):
@@ -92,13 +123,22 @@ def mapping_info(directory_name):
         mapping_data = pd.concat([pd.DataFrame(index=range(2)), mapping_data[f'Map_1'], pd.DataFrame(index=range(1)), mapping_data[f'Map_2'], pd.DataFrame(index=range(1)), mapping_data[f'Combined']]).reset_index()
         mapping_data = mapping_data.drop(columns=['index'])
         mapping_data.rename(columns={0: directory_name}, inplace=True)
-
     else:
         print(timenow(),f" Error in parsing mapping data. Check to see if there is a mistake in the directory_name, if you are in the directory where directory_name exists, and if Log.final.out files exist.")
 
     return mapping_data
 
 def split_slurm(file_path, directory_name):
+    """
+    Reads a SLURM file and extracts relevant information for a specific directory.
+
+    Args:
+        file_path (str): Path to the SLURM file.
+        directory_name (str): Name of the directory to extract information for.
+
+    Returns:
+        pd.DataFrame: DataFrame containing SLURM information for the specified directory.
+    """
     if os.path.exists(file_path):
         # Break the slurm file into the appropriate sections
         with open(file_path, 'r') as file:
@@ -114,9 +154,12 @@ def split_slurm(file_path, directory_name):
                     if end_pattern in line:
                         section.append(current_section)
                         inside_section = False
-
-        directory_names = [re.search(r"name='([^']+)'", lists[74].strip()).group(1).replace("_pri_crssant.sam", "") for lists in section if re.search(r"name='([^']+)'", lists[74].strip())]
-
+        
+        directory_names = [re.search(r"name='([^']+)'", line.strip()).group(1).replace("_pri_crssant.sam", "")
+                           for lists in section
+                           for line in lists
+                           if re.search(r"name='([^']+)'", line.strip())]
+        
         info_dict = {
             "Total input alignment number": [],
             "Continuous alignments (no gaps)": [],
@@ -148,7 +191,7 @@ def split_slurm(file_path, directory_name):
         combined = pd.DataFrame(); blank= pd.DataFrame(index=range(1))
         slurm = pd.concat([combined, blank, sect1, blank, sect2, blank, sect3])
         slurm = slurm.rename(columns={0: directory_name}).reset_index(drop=True)
-    
+
     else:
         slurm = pd.DataFrame(0, index=range(22), columns=[directory_name])
         print(timenow(),f" slurm.out file was not provided. Omitting count.")
@@ -156,6 +199,18 @@ def split_slurm(file_path, directory_name):
     return slurm
 
 def combine_outputs(directory_name, fastq_path, slurm_path, output_csv):
+    """
+    Combines mapping, SLURM, and FASTQ count information and appends or updates a CSV file.
+
+    Args:
+        directory_name (str): Name of the directory.
+        fastq_path (str): Path to the FASTQ file.
+        slurm_path (str): Path to the SLURM file.
+        output_csv (str): Path to the output CSV file.
+
+    Returns:
+        None
+    """
     check_index(output_csv)
     existing_data = pd.read_csv(output_csv)
     read_count = fastq_count(fastq_path)
@@ -164,8 +219,6 @@ def combine_outputs(directory_name, fastq_path, slurm_path, output_csv):
     combined_df = pd.concat([mapping_data, slurm_data], axis=0, ignore_index=True)
     combined_df.loc[0, directory_name] = read_count
 
-    print(combined_df)
-
     if directory_name in existing_data.columns:
         print(timenow(),f" Data already exists for {directory_name}, updating values instead.")
         existing_data.loc[:, directory_name] = combined_df.loc[:, directory_name]
@@ -173,28 +226,46 @@ def combine_outputs(directory_name, fastq_path, slurm_path, output_csv):
     else:
         df_output = pd.concat([existing_data, combined_df], axis=1, ignore_index=False)
         df_output.to_csv(output_csv, index=False)
+
     print(timenow(),f" Job completed.")
 
 def main():
+
     parser = argparse.ArgumentParser(
         prog="seqstats.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=textwrap.dedent("""\
+        
+        This script should be run in the parent directory where "directory_name" is located.
+        It will extract information from various files of the CRSSANT pipeline: 
 
-        This script is used to extract information from various files of the CRSSANT pipeline: 
+        -Number of reads from the pre-mapping fastq file.
+        -Output from two rounds of mapping (Log.final.out).
+        -Output from the gap_types and gap_filter analyses.
 
-        1. Number of reads from the pre-mapping fastq file.
-        2. Output from two rounds of mapping (Log.final.out).
-        3. Output from the gap_types and gap_filter analyses.
+        NOTE: Arguments should only be provided in the following order:
 
-        NOTE: Arguments should be provided in the following order:
+        1. directory_name:  NAME of directory containing map_1 and map_2 directories
+                            with the Log.final.out files. Should be identical to 
+                            'Outprefix' from the mapping steps. Providing a directory 
+                            PATH will result in the last component of the path being 
+                            used as the directory_NAME. 
 
-        1. Directory name
-        2. Path to fastq file
-        3. Path to slurm-*.out
-        4. Output name for CSV
+                            CAUTION: 'directory_name' should be unique for each set 
+                            of data. Using identical names will overwrite existing data.
+        
+        2. fastq_path:      Absolute PATH to the fastq (.fastq) file. Input can be 
+                            compressed (e.g., fastq.gz). Type 'none' if it does not exist.
 
-        The script should be run in the parent directory where "directory_name" is located.
+        3. slurm_path:      PATH of the file that is generated after the gaptype 
+                            and gapfilter analyses. Type 'none' if it does not exist.
+        
+        4. output_csv:      NAME for the output file. If the CSV name is reused, 
+                            results will append to the rightmost column or update 
+                            any existing values with the same directory_name.      
+
+        ###########################################################################
+        ###########################################################################
         """),
         usage="\npython3 %(prog)s [-h] [-m] directory_name fastq_path slurm_path output_csv")
 
@@ -225,9 +296,15 @@ Raw reads: Number of sequencing reads from the fastq file.
 
 ##############################
 
-"Round 1": Generated output files after the first round of STAR mapping of the pre-processed fastq file. 
-"Round 2": Generated output files after performing softreverse.py on the cont.sam file from Round 1 of STAR mapping as the input for the second round of STAR mapping.  
-"Combined": The summation of the information from the two rounds of STAR mapping.
+"Round 1":  Generated output files after the first round of STAR mapping 
+            of the pre-processed fastq file. 
+
+"Round 2":  Generated output files after performing softreverse.py on the 
+            cont.sam file from Round 1 of STAR mapping as the input for 
+            the second round of STAR mapping.  
+
+"Combined": The summation of the information from the two rounds of 
+            STAR mapping.
 
 Input reads: 
 Average input read length:
@@ -268,16 +345,10 @@ Median segment length:
 ###########################################################################
 """)
     
-    parser.add_argument('directory_name', help="""Directory NAME containing map_1 and map_2 directories with the Log.final.out files. Should be identical to 'Outprefix' from the mapping steps. Providing a directory PATH will result in the last component of the path being used as the directory NAME. 
-
-    CAUTION: 'directory_name' should be unique for each set of data. Using identical names will overwrite any existing data.""")
-    
-    parser.add_argument('fastq_path', help="""Absolute PATH to the fastq (.fastq) file. Input can be compressed (.fastq.gz). Type 'none' if it does not exist.""")
-    
-    parser.add_argument('slurm_path', help="""slurm-*.out absolute PATH.The file that is generated after the gaptype and gapfilter analyses. Type 'none' if 
-    it does not exist.""")
-    
-    parser.add_argument('output_csv', help="""NAME for the output file. If the CSV name is reused, results will append to the rightmost column or update any existing values with the same directory_name.""")
+    parser.add_argument('directory_name')
+    parser.add_argument('fastq_path')
+    parser.add_argument('slurm_path')
+    parser.add_argument('output_csv')
 
     args = parser.parse_args(remaining_args)
     args.directory_name = os.path.basename(os.path.normpath(args.directory_name))
