@@ -4,10 +4,10 @@ date:       2024_01_05
 python:     python3.10
 script:     seqstats.py
 
-This script is used to extract information
-about the read counts, mapping statistics, 
-and details of the gaptypes and gapfilter 
-analyses from the CRSSANT pipeline.
+This script is used to extract information about the read counts, mapping 
+statistics, and details of the gaptypes and gapfilter analyses from the 
+CRSSANT pipeline. Files should be organized according to the mapping shell 
+script from the rna2d3d repository.  
 """
 
 # Import Packages
@@ -140,60 +140,65 @@ def split_slurm(file_path, directory_name):
         pd.DataFrame: DataFrame containing SLURM information for the specified directory.
     """
     if os.path.exists(file_path):
-        # Break the slurm file into the appropriate sections
-        with open(file_path, 'r') as file:
-            section = []; current_section = []; inside_section = False
-            start_pattern = "..... started STAR run" 
-            end_pattern = "SA tag removal completed successfully."
-            for line in file:
-                if start_pattern in line:
-                    current_section = [line]
-                    inside_section = True
-                elif inside_section:
-                    current_section.append(line)
-                    if end_pattern in line:
-                        section.append(current_section)
-                        inside_section = False
-        
-        directory_names = [re.search(r"name='([^']+)'", line.strip()).group(1).replace("_pri_crssant.sam", "")
-                           for lists in section
-                           for line in lists
-                           if re.search(r"name='([^']+)'", line.strip())]
-        
-        info_dict = {
-            "Total input alignment number": [],
-            "Continuous alignments (no gaps)": [],
-            "Two-segment gapped alignments": [],
-            "Multi-segment gapped alignments": [],
-            "Other chimeric (different str/chr)": [],
-            "Overlapping chimeric (homotypic)": [],
-            "Bad alignments": [],
-            "  Total alignments": [],
-            "Alignments with at least 1 good gaps": [],
-            "Alignments with at least 2 good gaps": [],
-            "Total number of gaps": [],
-            "gap length median for all": [],
-            "gap length median of selected ones for the distribution plot": [],
-            "Total number of segments": [],
-            "Segment length median": []
-        }
+        try:
+            # Break the slurm file into the appropriate sections
+            with open(file_path, 'r') as file:
+                section = []; current_section = []; inside_section = False
+                start_pattern = "..... started STAR run" 
+                end_pattern = "SA tag removal completed successfully."
+                for line in file:
+                    if start_pattern in line:
+                        current_section = [line]
+                        inside_section = True
+                    elif inside_section:
+                        current_section.append(line)
+                        if end_pattern in line:
+                            section.append(current_section)
+                            inside_section = False
+            
+            directory_names = [re.search(r"name='([^']+)'", line.strip()).group(1).replace("_pri_crssant.sam", "")
+                               for lists in section
+                               for line in lists
+                               if re.search(r"name='([^']+)'", line.strip())]
+            
+            info_dict = {
+                "Total input alignment number": [],
+                "Continuous alignments (no gaps)": [],
+                "Two-segment gapped alignments": [],
+                "Multi-segment gapped alignments": [],
+                "Other chimeric (different str/chr)": [],
+                "Overlapping chimeric (homotypic)": [],
+                "Bad alignments": [],
+                "  Total alignments": [],
+                "Alignments with at least 1 good gaps": [],
+                "Alignments with at least 2 good gaps": [],
+                "Total number of gaps": [],
+                "gap length median for all": [],
+                "gap length median of selected ones for the distribution plot": [],
+                "Total number of segments": [],
+                "Segment length median": []
+            }
 
-        for group, section in zip(directory_names, section):
-            if group == directory_name:
-                for line in section:
-                    for keyword in info_dict:
-                        if keyword in line:
-                            value = line.split()[-1]
-                            info_dict[keyword].append(value)
+            for group, section in zip(directory_names, section):
+                if group == directory_name:
+                    for line in section:
+                        for keyword in info_dict:
+                            if keyword in line:
+                                value = line.split()[-1]
+                                info_dict[keyword].append(value)
 
-        select = pd.DataFrame(list(info_dict.values()), index=info_dict.keys())
-        sect1= select.iloc[0:10, 0]; sect2 = select.iloc[7:10, 1]; sect3 = select.iloc[10:16, 0]
-        combined = pd.DataFrame(); blank= pd.DataFrame(index=range(1))
-        slurm = pd.concat([combined, blank, sect1, blank, sect2, blank, sect3])
-        slurm = slurm.rename(columns={0: directory_name}).reset_index(drop=True)
+            select = pd.DataFrame(list(info_dict.values()), index=info_dict.keys())
+            sect1= select.iloc[0:10, 0]; sect2 = select.iloc[7:10, 1]; sect3 = select.iloc[10:16, 0]
+            combined = pd.DataFrame(); blank= pd.DataFrame(index=range(1))
+            slurm = pd.concat([combined, blank, sect1, blank, sect2, blank, sect3])
+            slurm = slurm.rename(columns={0: directory_name}).reset_index(drop=True)
+        
+        except:
+            slurm = pd.DataFrame(0, index=range(21), columns=[directory_name])
+            print(timenow(),f" {directory_name} was not found in the slurm.out file. Omitting count.")
 
     else:
-        slurm = pd.DataFrame(0, index=range(22), columns=[directory_name])
+        slurm = pd.DataFrame(0, index=range(21), columns=[directory_name])
         print(timenow(),f" slurm.out file was not provided. Omitting count.")
     
     return slurm
