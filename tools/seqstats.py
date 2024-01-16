@@ -305,46 +305,45 @@ Raw reads: Number of sequencing reads from the fastq file.
             of the pre-processed fastq file. 
 
 "Round 2":  Generated output files after performing softreverse.py on the 
-            cont.sam file from Round 1 of STAR mapping as the input for 
-            the second round of STAR mapping.  
+            cont.sam file from Round 1 of STAR mapping and using it as 
+            input for the second round of mapping.  
 
 "Combined": The summation of the information from the two rounds of 
             STAR mapping.
 
-Input reads: 
-Average input read length:
-Uniquely mapped reads:
-Multi-mapped reads:
-Too many mismatches:
-Too short reads:
-Other unmapped:
+Input reads: Number of reads passed in to STAR mapper.
+Average input read length: The average length of reads passed to STAR.
+Uniquely mapped reads: Number of reads mapped to a unique location in the reference genome.
+Multi-mapped reads: Reads that can map to multiple locations in the reference genome.
+Too many mismatches: Reads that have a number of mismatches exceeding the threshold values specified in the mapping shell script.
+Too short reads: Reads shorter than a length specified in the mapping shell script.
+Other unmapped: Reads that could not be mapped to the reference genome for various reasons.
 
 ##############################
 
-Gap type analysis:
+Gap type analysis: Script used to differentiate reads into various "types". See the CRSSANT paper for detailed information.
 
-Total input alignment number:
-Contiuous alignments (no gaps):
-Two-segment gapped alignments:
-Multi-segment gapped alignments:
-Other chimeric (different str/chr):
-Overlapping chimeric (homotypic):
-Bad alignments:
+Total input alignment number: Total number of alignments (mapped reads) after STAR mapping.
+Contiuous alignments (no gaps): Alignments where the entire read was mapped without gaps.
+Two-segment gapped alignments: Alignments with a single gap between two segments.
+Multi-segment gapped alignments: Alignments with multiple gaps between segments.
+Other chimeric (different str/chr): Chimeric alignments involving different chromosomes or strands.
+Overlapping chimeric (homotypic): Chimeric alignments withint he same chromosome or genomic structure, but with overlapping segments.
+Bad alignments: Alignments that are considered poor quality for various reasons.
 
 ##############################
 
-Filtering for gap_1:
-Filtering for gap_m:
+Filtering for gap_1/gap_m: Applying a filter to remove splice junction alignments and short deletions (e.g., 1-2 nt gaps) 
 
-Total single gapped alignments:
-Alignments with at least 1 good gap:
-Alignment with at least 2 good gaps:
+Total single gapped alignments: Total number of alignments with a single gap.
+Alignments with at least 1 good gap: Alignments with at least 1 high-quality gap.
+Alignment with at least 2 good gaps: Alignments with at least 2 high-quality gaps. 
 
-Total number of gaps:
-Median gap length (all):
-Median gap length (dist. plot):
-Total number of segments:
-Median segment length:
+Total number of gaps: The overall count of gaps in the alignments.
+Median gap length (all): The median length of all gaps in the alignments.
+Median gap length (dist. plot): The median length of gaps used for distribution plotting (i.e., in the PDF output from the mapping step)
+Total number of segments: Total count of segments in the alignments.
+Median segment length: Median length of all segments in the alignments.
 
 ###########################################################################
 ###########################################################################
