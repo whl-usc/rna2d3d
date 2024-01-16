@@ -139,12 +139,12 @@ function mapping() {
 
         ## Plot the length of gaps (N): gaplendist_mod.py
         cat $Outprefix'_prigap1_filtered.sam' $Outprefix'_prigapm_filtered.sam' > $Outprefix'_prigaps_filtered.sam'
-        python3 $ScriptPath/crssant/CRSSANT-master/scripts/gaplendist_mod.py $Outprefix'_prigaps_filtered.sam' $Outprefix_gaplen.pdf 100
+        python3 $ScriptPath/crssant/CRSSANT-master/scripts/gaplendist_mod.py $Outprefix'_prigaps_filtered.sam' $Outprefix'_gaplen.pdf' 100
         rm -f $Outprefix'_prigaps_filtered.sam'
         
         ## Plot size distribution of each segment: seglendist_mod.py
         cat $Outprefix'_prigap1_filtered.sam' $Outprefix'_prigapm_filtered.sam' $Outprefix'_pritrans.sam' > $Outprefix'_prifiltered.sam'
-        python3 $ScriptPath/crssant/CRSSANT-master/scripts/seglendist_mod.py $Outprefix'_prifiltered.sam' $Outprefix_seglen.pdf
+        python3 $ScriptPath/crssant/CRSSANT-master/scripts/seglendist_mod.py $Outprefix'_prifiltered.sam' $Outprefix'_seglen.pdf'
         rm -f $Outprefix'_prifiltered.sam'
         
         ## Plot the length of gaps (N): gaplendist_v2.py
