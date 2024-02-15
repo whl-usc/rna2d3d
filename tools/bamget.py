@@ -206,10 +206,24 @@ def write_bed_file(overlapping_genes, gene_regions, output):
     Returns:
         None
     """
-    with open(output, 'w') as f:
+    mode = 'w'
+    if os.path.exists(output):
+        mode = 'a'
+
+    existing_genes = set()
+    if mode =='a':
+        with open(output, 'r') as f:
+            for line in f:
+                existing_genes.add(line.split('\t')[3])
+
+    with open(output, mode) as f:
         for gene_name in overlapping_genes:
+            if gene_name in existing_genes:
+                continue
             chrom, start, stop, strand = gene_regions[gene_name]
-            f.write(f"{chrom}\t{start}\t{stop}\t{gene_name}\t1000\t{strand}")
+            line = f"{chrom}\t{start}\t{stop}\t{gene_name}\t1000\t{strand}"
+            f.write(line)
+            existing_genes.add(gene_name)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -281,7 +295,8 @@ def main():
                             hssnRNA 1934    2058    U6atac  +
     
     4.  output:             Any name str() for the output file. It is recommended to include
-                            min_coverage as part of the name to specify the cutoff values.  
+                            min_coverage as part of the name to specify the cutoff values. Supplying
+                            the same output filename will append to existing lines.  
 
     ###########################################################################
     ###########################################################################
