@@ -57,7 +57,7 @@ def check_depth(bam_file, min_coverage):
 
     return coverage_positions
 
-def split_bam_file(input_bam, min_coverage, remove_files):
+def split_bam_file(input_bam, min_coverage):
     """
     Splits a provided BAM file by their chromosome in column 3 and 
     determines coverage_positions using check_depth(). Collects the 
@@ -295,15 +295,17 @@ def main():
     parser.add_argument('output')
     args = parser.parse_args()
 
-    print(f"Job started at {timenow()}.")
-    high_coverage_positions = split_bam_file(args.input_bam, args.min_coverage, remove_files=args.remove)
+    print(f"Job started at {timenow()}.\n")
+    high_coverage_positions = split_bam_file(args.input_bam, args.min_coverage)
     gene_regions = collapse_gene_regions(args.annotation_file)
     overlapping_genes = overlap_gene_regions(high_coverage_positions, gene_regions)
     write_bed_file(overlapping_genes, gene_regions, args.output)
+
+    remove_files = args.remove
     if remove_files:
         os.remove(f"*_sorted.bam")
         print(f"Removed intermediate bam files.")
-    print(f"Job completed at {timenow()}.")
+    print(f"Job completed at {timenow()}.\n")
 
 if __name__ == "__main__":
     main()
