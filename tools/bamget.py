@@ -12,6 +12,7 @@ organized according to the mapping shell script from the rna2d3d repository.
 # Import Packages
 from datetime import datetime
 import argparse
+import glob
 import numpy as np
 import os
 import pandas as pd
