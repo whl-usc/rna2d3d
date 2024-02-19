@@ -229,7 +229,7 @@ def write_bed_file(overlapping_genes, gene_regions, output):
             if gene_name in existing_genes:
                 continue
             chrom, start, stop, strand = gene_regions[gene_name]
-            line = f"{chrom}\t{start}\t{stop}\t{gene_name}\t1000\t{strand}"
+            line = f"{chrom}\t{start}\t{stop}\t{gene_name}\t1000\t{strand}\n"
             f.write(line)
             existing_genes.add(gene_name)
 
