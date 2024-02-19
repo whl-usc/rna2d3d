@@ -333,7 +333,7 @@ def main():
     remove_files = args.remove
     if remove_files:
         sorted_bam_files = glob.glob("*_sorted.bam")
-
+        os.remove(collapsed_genes.bed)
         if sorted_bam_files:
             for file in sorted_bam_files:
                 os.remove(file)
@@ -341,9 +341,6 @@ def main():
         else:
             print(f"No sorted BAM files found to remove.\n")
             
-        for file in sorted_bam_files:
-            os.remove(file)
-        print(f"Removed intermediate bam files.")
 
     print(f"Job completed at {timenow()}.\n")
 
