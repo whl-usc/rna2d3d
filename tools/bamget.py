@@ -306,9 +306,10 @@ def main():
                             min_coverage as part of the name to specify the cutoff values. Supplying
                             the same output filename will append to existing lines.  
 
-    5.  -s, --skip-chromosomes:
+    5.  -s, --skip-chromosome:
 
-                            Provide a list of space separated chromosomes to omit when splitting the BAM file.
+                            Optional argument. Provide a list of space separated chromosomes 
+                            to omit when splitting the BAM file.
 
     ###########################################################################
     ###########################################################################
