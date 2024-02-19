@@ -12,6 +12,7 @@ organized according to the mapping shell script from the rna2d3d repository.
 # Import Packages
 from datetime import datetime
 import argparse
+import glob
 import numpy as np
 import os
 import pandas as pd
@@ -57,7 +58,7 @@ def check_depth(bam_file, min_coverage):
 
     return coverage_positions
 
-def split_bam_file(input_bam, min_coverage):
+def split_bam_file(input_bam, min_coverage, skip_chromosome):
     """
     Splits a provided BAM file by their chromosome in column 3 and 
     determines coverage_positions using check_depth(). Collects the 
@@ -76,12 +77,19 @@ def split_bam_file(input_bam, min_coverage):
     Returns:
         high_coverage_positions (dictionary): list of chromosomes, positions.
     """
+    
     try:
         read_bam = subprocess.check_output(['samtools', 'view', input_bam], text=True)
         header = subprocess.check_output(['samtools', 'view', '-H', input_bam], text=True)
         unique_values = {line.split('\t')[2] for line in read_bam.split('\n') if line}
         chromosomes = list(unique_values)
         high_coverage_positions = {}
+
+        if skip_chromosome:
+            for chrom in skip_chromosome:
+                if chrom not in chromosomes:
+                    print(f"Error: Chromosome '{chrom}' is not a valid chromosome from the BAM file. Please check for typos.")
+                    sys.exit(1) # Exit the script with an error code.
 
         print(f"Checking positions with {min_coverage} or more reads.")
         # Use check_depth on each chromosome_sorted.bam file, using existing files where possible. 
@@ -298,12 +306,17 @@ def main():
                             min_coverage as part of the name to specify the cutoff values. Supplying
                             the same output filename will append to existing lines.  
 
+    5.  -s, --skip-chromosomes:
+
+                            Provide a list of space separated chromosomes to omit when splitting the BAM file.
+
     ###########################################################################
     ###########################################################################
     """),
-    usage="\npython3 %(prog)s [-h] [-rm] input_bam min_coverage annotation_file output")
+    usage="\npython3 %(prog)s [-h] [-rm] input_bam min_coverage annotation_file output [-s] chromosome ")
     
     parser.add_argument('-rm', '--remove', action='store_true', help='Optional parameter to remove the *_sorted.bam files.')
+    parser.add_argument('-s', '--skip-chromosome', nargs='*', help='Optional parameter to skip specified chromosomes during processing.')
     parser.add_argument('input_bam')
     parser.add_argument('min_coverage')
     parser.add_argument('annotation_file')
@@ -311,15 +324,21 @@ def main():
     args = parser.parse_args()
 
     print(f"Job started at {timenow()}.\n")
-    high_coverage_positions = split_bam_file(args.input_bam, args.min_coverage)
+    high_coverage_positions = split_bam_file(args.input_bam, args.min_coverage, args.skip_chromosome)
     gene_regions = collapse_gene_regions(args.annotation_file)
     overlapping_genes = overlap_gene_regions(high_coverage_positions, gene_regions)
     write_bed_file(overlapping_genes, gene_regions, args.output)
 
     remove_files = args.remove
     if remove_files:
-        os.remove(f"*_sorted.bam")
-        print(f"Removed intermediate bam files.")
+        sorted_bam_files = glob.glob("*_sorted.bam")
+        if sorted_bam_files:
+            for file in sorted_bam_files:
+                os.remove(file)
+            print(f"Removed intermediate bam files.\n")
+        else:
+            print(f"No sorted BAM files found to remove.\n")
+            
     print(f"Job completed at {timenow()}.\n")
 
 if __name__ == "__main__":
