@@ -332,7 +332,7 @@ def main():
     remove_files = args.remove
     if remove_files:
         sorted_bam_files = glob.glob("*_sorted.bam")
-<<<<<<< HEAD
+
         if sorted_bam_files:
             for file in sorted_bam_files:
                 os.remove(file)
@@ -340,11 +340,10 @@ def main():
         else:
             print(f"No sorted BAM files found to remove.\n")
             
-=======
         for file in sorted_bam_files:
             os.remove(file)
         print(f"Removed intermediate bam files.")
->>>>>>> 47ab7803c7d1a025f4c619d34f8c5eb140fd0c3d
+
     print(f"Job completed at {timenow()}.\n")
 
 if __name__ == "__main__":
