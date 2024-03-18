@@ -749,7 +749,7 @@ def main():
         writedg(outdg,dg_stats_dict,genepair)
         #write sg output later. DG and NG names are not unique
     end_time = time.time()
-    elapsed_time = "{:.2f}".format(end_time - reading_end)
+    elapsed_time = "{:.2f}".format(end_time - read_end)
     print("Clustering time:", elapsed_time)
 
 if __name__ == '__main__':
