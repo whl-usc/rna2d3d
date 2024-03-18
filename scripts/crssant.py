@@ -726,7 +726,7 @@ def main():
     covdict = getcov(*(args.bedgraphs.split(',')))
     read_end = time.time()
     elapsed_time = "{:.2f}".format(read_end - read_start)
-    print(f"Finished reading input in:", elapsed_time+"s")
+    print(f"Completed reading input in:", elapsed_time+"s")
 
     # 2) Check clustering arguments.
     if args.covlimit: 
@@ -773,7 +773,11 @@ def main():
     print("Completed clustering in:", elapsed_time+"s")
 
 if __name__ == '__main__':
+    start = time.time()
     multiprocessing.freeze_support()
     main()
+    stop = time.time()
+    elapsed_time = "{:.2f}".format(stop - start)
+    print("Completed assembly in:", elapsed_time+"s")
 sys.exit()
 ###############################################################################
