@@ -726,11 +726,13 @@ def main():
     covdict = getcov(*(args.bedgraphs.split(',')))
     read_end = time.time()
     elapsed_time = "{:.2f}".format(read_end - read_start)
-    print(f"Time to read:", elapsed_time)
+    print(f"Finished reading input in:", elapsed_time+"s")
 
     # 2) Check clustering arguments.
-    if args.covlimit: args.covlimit = int(args.covlimit)
-    else: args.covlimit = 1000
+    if args.covlimit: 
+        args.covlimit = int(args.covlimit)
+    else: 
+        args.covlimit = 1000
     if args.cluster == 'cliques':
         args.t_o = float(args.t_o) if args.t_o else 0.1
         args.t_eig = None
@@ -753,19 +755,22 @@ def main():
     file_base = args.alignfile.split('/')[-1].split('.sam')[0]
     if args.cluster=='cliques':
         clustering_str='%s.t_o%s'%(args.cluster,args.t_o)
-    else: clustering_str='%s.t_o%s.t_eig%s'%(args.cluster,args.t_o,args.t_eig)
+    else: 
+        clustering_str='%s.t_o%s.t_eig%s'%(args.cluster,args.t_o,args.t_eig)
     file_base += '.%s' %clustering_str
     outsam = args.out + file_base + '.sam'
     outdg = args.out + file_base +  '_dg.bedpe'
-    with open(outsam, 'w') as f: f.write(samheader)
-    with open(outdg, 'w') as f: pass
+    with open(outsam, 'w') as f: 
+        f.write(samheader)
+    with open(outdg, 'w') as f: 
+        pass
     for (genepair,dg_filtered_dict,dg_stats_dict) in results:
         writesam(outsam,genealigndict,dg_filtered_dict,dg_stats_dict,genepair)
         writedg(outdg,dg_stats_dict,genepair)
         #write sg output later. DG and NG names are not unique
     end_time = time.time()
     elapsed_time = "{:.2f}".format(end_time - read_end)
-    print("Clustering time:", elapsed_time)
+    print("Completed clustering in:", elapsed_time+"s")
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
