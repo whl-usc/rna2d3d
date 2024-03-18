@@ -12,10 +12,10 @@ module load perl/5.36.0
 # date:       2023_03_02
 # script:     crssant.sh
 #
-# This script standardizes the mapping of pre-processed data from PARIS- and SHARC-based sequencing.
-# STAR and various scripts from the CRSSANT pipeline are used. Change paths and variables accordingly.
+# This script standardizes the processing of data from PARIS- and SHARC-based sequencing.
+# Various scripts from the CRSSANT pipeline are used. Change paths and variables accordingly.
 #
-# STAR: https://github.com/alexdobin/STAR
+# 
 # CRSSANT: https://github.com/zhipenglu/CRSSANT/tree/master/scripts
 ####################################################################################################
 
