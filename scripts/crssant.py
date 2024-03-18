@@ -89,6 +89,18 @@ from itertools import chain, product
 from sklearn.cluster import KMeans
 
 ###############################################################################
+
+# Define version
+__version__ = "3.0"
+
+# Version notes
+__update_notes__ = """
+Version 3.0:
+    Added function timing for benchmarking.
+    Fixed typos and edited docstrings for clarity.
+"""
+
+###############################################################################
 #1. Process input. 5 functions: getreads,getgenes,line2info,genealign,getcov
 
 def getreads(alignfile):
@@ -678,6 +690,9 @@ def parse_args():
                         'Default: 0.5 for "spectral", and 0.1 for "cliques"')
     parser.add_argument('-t_eig', help='Eigenratio threshold (positive number)'
                         'Default: 5 for "spectral". Not needed for "cliques".')
+    parser.add_argument('-V', '--version', action='version', 
+                        version=f'%(prog)s {__version__}')
+
     args = parser.parse_args(sys.argv[1:])
     return args
 
