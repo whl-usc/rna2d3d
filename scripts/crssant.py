@@ -91,11 +91,10 @@ from sklearn.cluster import KMeans
 ###############################################################################
 
 # Define version
-__version__ = "3.0"
+__version__ = "3.0.1"
 
 # Version notes
 __update_notes__ = """
-Version 3.0:
     Added function timing for benchmarking.
     Fixed typos and edited docstrings for clarity.
 """
@@ -240,15 +239,27 @@ def getcov(bedgraphplus,bedgraphminus):
         chrom,start,end,value = tuple(line.strip().split())
         range10nt = range(round(int(start)/10),round(int(end)/10))
         for i in [10*i for i in range10nt]:
-            if (chrom,'+',i) not in covdict: covdict[(chrom,'+',i)]=0
-            covdict[(chrom,'+',i)] = max(covdict[(chrom,'+',i)],int(value))
+            if (chrom,'+',i) not in covdict: 
+                covdict[(chrom,'+',i)]=0
+                if 'e' in value.lower():
+                    covdict[(chrom,'+',i)] = max(covdict[(chrom,'+',i)],
+                        float(value))
+                else:
+                    covdict[(chrom,'+',i)] = max(covdict[(chrom,'+',i)],
+                        int(value))
     for line in g: # Minus strand
         chrom,start,end,value = tuple(line.strip().split())
         range10nt = range(round(int(start)/10),round(int(end)/10))
         for i in [10*i for i in range10nt]:
-            if (chrom,'-',i) not in covdict: covdict[(chrom,'-',i)]=0
-            value = float(value)
-            covdict[(chrom,'-',i)] = max(covdict[(chrom,'-',i)],int(value))
+            if (chrom,'-',i) not in covdict: 
+                covdict[(chrom,'-',i)]=0
+                if 'e' in value.lower():
+                    covdict[(chrom,'-',i)] = max(covdict[(chrom,'+',i)],
+                        float(value))
+                else:
+                    covdict[(chrom,'-',i)] = max(covdict[(chrom,'+',i)],
+                        int(value))
+    
     f.close(); g.close()
 
     return covdict
@@ -694,6 +705,7 @@ def parse_args():
                         version=f'%(prog)s {__version__}')
 
     args = parser.parse_args(sys.argv[1:])
+    
     return args
 
 def run_analysis(instance):#Run analysis on 1 group of alignments (gene1,gene2)
