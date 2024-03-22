@@ -95,8 +95,16 @@ __version__ = "3.0.1"
 
 # Version notes
 __update_notes__ = """
-    Added function timing for benchmarking.
-    Fixed typos and edited docstrings for clarity.
+3.0.1
+    -   Fixed issue "ValueError: max() arg is an empty sequence" in 
+        function dg_stats_dict and overlap1.
+3.0.0
+    -   Added function timing for benchmarking.
+    -   Added support for datasets with read coverage in scientific notation
+    -   Fixed other minor typos and edited docstrings for clarity.
+2.0.0 
+    -   Fixed pull request issues with line2info and genesdict.
+
 """
 
 ###############################################################################
@@ -254,10 +262,10 @@ def getcov(bedgraphplus,bedgraphminus):
             if (chrom,'-',i) not in covdict: 
                 covdict[(chrom,'-',i)]=0
                 if 'e' in value.lower():
-                    covdict[(chrom,'-',i)] = max(covdict[(chrom,'+',i)],
+                    covdict[(chrom,'-',i)] = max(covdict[(chrom,'-',i)],
                         float(value))
                 else:
-                    covdict[(chrom,'-',i)] = max(covdict[(chrom,'+',i)],
+                    covdict[(chrom,'-',i)] = max(covdict[(chrom,'-',i)],
                         int(value))
     
     f.close(); g.close()
@@ -583,11 +591,17 @@ def create_stats(dg_align_dict, genealign, covdict):
         start1,end1,start2,end2=tuple(dg_inds)
         range1=[i*10 for i in range(floor(int(start1)/10),ceil(int(end1)/10))]
         range2=[i*10 for i in range(floor(int(start2)/10),ceil(int(end2)/10))]
-        overlap1=max([covdict[(chrom1,strand1,i)] for i in range1 if
-                      (chrom1,strand1,i) in covdict])
-        overlap2=max([covdict[(chrom2,strand2,i)] for i in range2 if
-                      (chrom2,strand2,i) in covdict])
-        covfrac=len(alignids)/np.sqrt(overlap1*overlap2)
+        #Check to ensure covdict is not empty.
+        overlap1_values=[covdict[(chrom1,strand1,i)] for i in range1 if
+                      (chrom1,strand1,i) in covdict]
+        overlap2_values=[covdict[(chrom2,strand2,i)] for i in range2 if
+                      (chrom2,strand2,i) in covdict]
+        overlap1 = max(overlap1_values) if overlap1_values else 0
+        overlap2 = max(overlap2_values) if overlap2_values else 0
+        if overlap1 != 0 and overlap2 != 0:
+            covfrac = len(alignids)/np.sqrt(overlap1*overlap2)
+        else:
+            covfrac = 0
         #print(dg,len(alignids),overlap1,overlap2,covfrac)
        
         # Assign NG for compact visualization in genome browsers e.g. IGV
@@ -684,10 +698,12 @@ def writedg(outdg,dg_stats_dict,genepair):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
+
     parser=argparse.ArgumentParser(
         description=(f'CRSSANT groups sequencing reads derived from'
             ' crosslink-ligate based pipelines into DGs and SGs'),
-        epilog='python CRSSANT.py align.sam ref.bed ref.fa out')
+        epilog='python CRSSANT.py align.sam ref.bed ref.fa out',
+        formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('alignfile', help='Path to alignedment file (SAM)')
     parser.add_argument('genesfile', help='Path to gene annotations (BED6)')
     parser.add_argument('bedgraphs', help='Path to genome coverge (bedgraph)'
@@ -702,10 +718,11 @@ def parse_args():
     parser.add_argument('-t_eig', help='Eigenratio threshold (positive number)'
                         'Default: 5 for "spectral". Not needed for "cliques".')
     parser.add_argument('-V', '--version', action='version', 
-                        version=f'%(prog)s {__version__}')
-
-    args = parser.parse_args(sys.argv[1:])
+        version=f'%(prog)s {__version__}\n{__update_notes__}', 
+        help='Print version + update notes and exit.')
     
+    args = parser.parse_args(sys.argv[1:])
+
     return args
 
 def run_analysis(instance):#Run analysis on 1 group of alignments (gene1,gene2)
