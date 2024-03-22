@@ -102,9 +102,9 @@ __update_notes__ = """
     -   Added function timing for benchmarking.
     -   Added support for datasets with read coverage in scientific notation
     -   Fixed other minor typos and edited docstrings for clarity.
+
 2.0.0 
     -   Fixed pull request issues with line2info and genesdict.
-
 """
 
 ###############################################################################
