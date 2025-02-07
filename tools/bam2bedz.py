@@ -17,13 +17,22 @@ BEDGRAPH: chromosome, start, end, count
 ################################################################################
 # Define version
 
-__version__ = "2.0.0"
+__version__ = "2.2.0"
 
 # Version notes
 
 __update_notes__ = """
+2.2.0
+    -   Added new function for continuous or "normal" read files.
+
+2.1.1
+    -   Optional flag to remove the sorted.bam and associated index file.
+
+2.1.0
+    -   Argument for analysis type made mandatory.
+
 2.0.0
-    -   Order of arguments adjusted.  
+    -   Order of arguments adjusted.
     -   Added a separate function for trans reads.
 
 1.1.0
