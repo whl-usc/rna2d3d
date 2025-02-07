@@ -10,8 +10,8 @@ Converts input BAM files to modified BED6/BEDPE/bedgraph format, where
 count of "repeats" is a merged record with identical start/stop locations.
 
 BED6: chromosome, position, ., cigarstring_md-tag, repeats, strand
-BEDPE:
-BEDGRAPH: 
+BEDPE: 
+BEDGRAPH: chromosome, start, end, count
 """
 
 ################################################################################
@@ -23,7 +23,8 @@ __version__ = "2.0.0"
 
 __update_notes__ = """
 2.0.0
-    -   New argument order, add separate function for trans-type reads.
+    -   Order of arguments adjusted.  
+    -   Added a separate function for trans reads.
 
 1.1.0
     -   Simplified function for gap1/gapm/homo file types to BED6 format.
@@ -334,7 +335,6 @@ def main():
     else:
         print(f"Error: Unknown file type: {type}")
         return
-
 
     if args.remove:
         print("Cleaning up sorted BAM and index files...")
