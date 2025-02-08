@@ -78,7 +78,7 @@ def check_index_bam(bam_path, n_threads, basename):
     """
     if bam_path.endswith(".sam"):
         print(f"Provided file is in SAM format. Converting to BAM...")
-        temp_bam = f"{basename}.bam"
+        temp_bam = bam_path.replace(".sam", ".bam")
         subprocess.run(
             ["samtools", "view", "-@", str(n_threads), 
             "-bS", "-o", temp_bam, bam_path],
@@ -94,9 +94,9 @@ def check_index_bam(bam_path, n_threads, basename):
         print(f"Index file not found. Sorting and indexing...")
         pysam.sort("-@", str(n_threads), "-o", sorted_bam, bam_path)
         pysam.index(sorted_bam)
-        print(f"Input file sorted and indexed...")
+        print(f"Input file sorted and indexed...\n")
     else:
-        print(f"Sorted and indexed BAM file already exists: {sorted_bam}")
+        print(f"Sorted and indexed BAM file already exists:\t{sorted_bam}\n")
 
     # Clean up the temporary BAM file if it was created
     if bam_path.endswith(".tmp.bam"):
@@ -119,7 +119,7 @@ def compress_output(file, n_threads):
     """
     try:
         subprocess.run(["bgzip", "-f", "-@", str(n_threads), file], check=True)
-        print(f"Compressed file saved as: {file}.gz")
+        print(f"Compressed file saved as:\t{file}.gz")
     except FileNotFoundError:
         print("Error: bgzip not found. Please install htslib.")
     except subprocess.CalledProcessError as e:
@@ -135,7 +135,7 @@ def compress_gap1_gapm_homo(bam_path, outfile_path, n_threads):
             1. Chromosome
             2. Start position
             3. Placeholder (".")
-            4. CIGAR string + MD tag (concatenated with `column_20_value`)
+            4. CIGAR string + MD tag
             5. Repeat count of (position, CIGAR string)
             6. Strand ("+" or "-")
         - Prints the total number of reads processed.
@@ -174,8 +174,8 @@ def compress_gap1_gapm_homo(bam_path, outfile_path, n_threads):
 
                 total_reads += 1 
 
-    print(f"Reads processed:\t\t{total_reads}")
-    print(f"Results saved to:\t\t{bed_file}")
+    print(f"Reads processed:\t{total_reads}")
+    print(f"Results saved to:\t{bed_file}")
 
     return bed_file
 
@@ -259,8 +259,8 @@ def compress_trans(bam_path, outfile_path, n_threads):
 
                 total_pairs += 1
 
-    print(f"Paired reads processed:\t\t{total_pairs}")
-    print(f"Results saved to:\t\t{bedpe_file}")
+    print(f"Reads processed:\t{total_pairs}")
+    print(f"Results saved to:\t{bedpe_file}")
 
     return bedpe_file
 
@@ -302,7 +302,7 @@ def process_cont(bam_path, outfile_path, n_threads):
         capture_output=True, text=True, check=True
     )
     total_reads = int(result.stdout.strip())
-    print(f"Total reads: {total_reads}")
+    print(f"Reads processed:\t\t{total_reads}")
     
     with open(bedgraph_file, "w") as out_file, \
          subprocess.Popen(
@@ -315,32 +315,64 @@ def process_cont(bam_path, outfile_path, n_threads):
             if result:
                 out_file.write(result)
 
-    print(f"Results saved to: {bedgraph_file}")
+    print(f"Results saved to:\t{bedgraph_file}")
     return bedgraph_file
 
 
-def process_crssant(bam_path, outfile_path):
-    repeat_counts = defaultdict(int)
-    with open(outfile_path+'.bed', 'w') as out_file:    
-        with pysam.AlignmentFile(bam_path, "rb") as bam:
+def process_crssant(bam_path, outfile_path, n_threads):
+    """
+    Processes a BAM file to extract relevant information and outputs a BED file.
+
+    Returns:
+        - A BED file ('outfile_path'.bed) containing:
+            1. Chromosome
+            2. Start position
+            3. DG tag
+            4. CIGAR string + MD tag
+            5. Repeat count of (position, CIGAR string)
+            6. Strand ("+" or "-")
+        - Prints the total number of reads processed.
+
+    Notes:
+        - Unmapped reads are skipped.
+        - Function tracks repeats for each (position, CIGAR string) pair.
+    """
+    repeat_reads = defaultdict(int)  # Count repeats of (position, cigar_items)
+    total_reads = 0 
+    bed_file = (f"{outfile_path}.bed")
+
+    print(f"Processing {bam_path}...")
+    with open(bed_file, 'w') as out_file:    
+        with pysam.AlignmentFile(bam_path, "rb", threads=n_threads) as bam:
             for read in bam:
                 if read.is_unmapped:
                     continue
 
-        # Extract the DG/NG/TG value
-        column_20_value = None
-        tags = read.tags  # Retrieve all optional tags
-        if len(tags) >= 20:
-            column_20_value = "_"+tags[19][1]
-        elif len(tags) < 20:
-            column_20_value = ""
-            print(f"WARNING: DG/NG/TG TAG NOT FOUND. CHECK FOR <MD_tag>")
-            
-        out_file.write(
-            f"{chrom}\t{position}\t.\t"
-            f"{read.cigarstring}_{md_tag}{column_20_value}\t"
-            f"{repeats}\t{strand}\n"
-        )
+                # Retain only essential information for BED6 format
+                chrom = bam.get_reference_name(read.reference_id)
+                position = read.reference_start
+                cigar_items = read.cigarstring
+                md_tag = read.get_tag("MD") if read.has_tag("MD") else "NA"
+                strand = '-' if read.is_reverse else '+'
+                dg_raw = read.get_tag("DG") if read.has_tag("DG") else "NA"
+                dg_tag = (dg_raw.replace(",", "_").rsplit(",\t", 1)[0] + ":" + 
+                    dg_raw.rsplit(",", 1)[-1])
+
+                # Increment repeat count for (position, cigar_items) get count
+                repeat_reads[(position, cigar_items)] += 1
+                repeats = repeat_reads[(position, cigar_items)]
+                out_file.write(
+                    f"{chrom}\t{position}\t{dg_tag}\t"
+                    f"{read.cigarstring}{'_'+md_tag}\t"
+                    f"{repeats}\t{strand}\n"
+                )
+
+                total_reads += 1 
+
+    print(f"Reads processed:\t\t{total_reads}")
+    print(f"Results saved to:\t\t{bed_file}")
+
+    return bed_file
 
 
 def parse_args():
@@ -392,7 +424,7 @@ def main():
     try:
         nproc = subprocess.run("nproc", shell=True, check=True, 
             text=True, capture_output=True)
-        n_threads = str(nproc.stdout.strip())
+        n_threads = int(nproc.stdout.strip())
     except subprocess.CalledProcessError:
         try:
             n_threads = os.cpu_count()
@@ -400,8 +432,8 @@ def main():
             print(f"Error in retrieving CPU count: {e}. "
                 f"Defaulting to 1 thread.")
             n_threads = 1
-
-    basename = os.path.basename(args.infile).split('.bam')[0]
+    
+    basename = os.path.splitext(os.path.basename(args.infile))[0]
     bam_file = check_index_bam(args.infile, n_threads, basename)
     analysis_type = str(args.input_type).lower()
 
@@ -415,13 +447,15 @@ def main():
         output = process_cont(bam_file, basename, n_threads)
         compress_output(output, n_threads)
     elif analysis_type == "crssant":
-        pass  # Placeholder for crssant analysis function
+        output = process_crssant(bam_file, basename, n_threads)
+        compress_output(output, n_threads)
+
     else:
         print(f"Error: Unknown file type: {type}")
         return
 
     if args.remove:
-        print("Cleaning up sorted BAM and index files...")
+        print("\nCleaning up sorted BAM and index files...")
         os.remove(f"{basename}.sorted.bam")
         os.remove(f"{basename}.sorted.bam.bai")
 
