@@ -10,20 +10,23 @@ Converts input BAM files to modified BED6/BEDPE/bedgraph format, where
 count of "repeats" is a merged record with identical start/stop locations.
 
 BED6: chromosome, position, ., cigarstring_md-tag, repeats, strand
-BEDPE: 
+BEDPE: chr1, start1, chr2, start2, cigar1_md1-cigar2_md2, 
+        repeats, strand1, strand2 
 BEDGRAPH: chromosome, start, end, count
 """
 
 ################################################################################
 # Define version
-
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 # Version notes
-
 __update_notes__ = """
+2.3.0
+    -   Re-write input reading to accomodate for SAM as input.
+
 2.2.0
     -   Added new function for continuous or "normal" read files.
+    -   Overhaul of the BAM to bedgraph using multiprocessing 
 
 2.1.1
     -   Optional flag to remove the sorted.bam and associated index file.
@@ -45,10 +48,8 @@ __update_notes__ = """
 
 ################################################################################
 # Import packages
-
 from collections import defaultdict
 import argparse
-import concurrent.futures
 import os
 import pysam
 import re
@@ -58,33 +59,64 @@ import multiprocessing
 ################################################################################
 # Define sub-functions for processing
 
-def check_index_bam(bam_path, n_threads):
+def check_index_bam(bam_path, n_threads, basename):
     """
-    Ensure a BAM file is sorted and indexed.
-
-    If an index (.bai) file does not exist for the BAM file, function:
-    1. Sorts the BAM file and saves it as `*.sorted.bam`.
-    2. Creates an index (`*.sorted.bam.bai`) for the sorted BAM file.
+    Ensures the input file is in BAM format, sorted, and indexed. If input file 
+    is SAM, convert to BAM before performing the sort and index.
 
     Parameters:
-        bam_path (str): Path to the input BAM file.
+        bam_path (str): Path to the input file (BAM or SAM format).
+        n_threads (int): Number of threads to use for sorting and indexing.
+        basename (str): Base name from input file.
 
     Returns:
-        str: Path to the sorted BAM file.
+        str: Path to the sorted and indexed BAM file.
+
+    Notes:
+        - If a sorted and indexed BAM file already exists, no further
+            processing is done.
     """
-    if not os.path.exists((bam_path).replace(".bam", "") + ".sorted.bam.bai"):
-        print(f"Index file for {bam_path} not found.")
-        print(f"Sorting and indexing...")
-        sorted_bam = bam_path.replace(".bam", ".sorted.bam")
-        pysam.sort("-@", n_threads, "-o", sorted_bam, bam_path)
+    if bam_path.endswith(".sam"):
+        print(f"Provided file is in SAM format. Converting to BAM...")
+        temp_bam = f"{basename}.bam"
+        subprocess.run(
+            ["samtools", "view", "-@", str(n_threads), 
+            "-bS", "-o", temp_bam, bam_path],
+            capture_output=True, text=True, check=True
+        )
+        bam_path = temp_bam
+
+    # Check if the sorted and indexed BAM file already exists
+    sorted_bam = bam_path.replace(".bam", ".sorted.bam")
+    index_file = sorted_bam + ".bai"
+
+    if not os.path.exists(index_file):
+        print(f"Index file not found. Sorting and indexing...")
+        pysam.sort("-@", str(n_threads), "-o", sorted_bam, bam_path)
         pysam.index(sorted_bam)
-        print(f"{bam_path} sorted and indexed.")
+        print(f"Input file sorted and indexed...")
     else:
-        sorted_bam = bam_path.replace(".bam", ".sorted.bam")
+        print(f"Sorted and indexed BAM file already exists: {sorted_bam}")
+
+    # Clean up the temporary BAM file if it was created
+    if bam_path.endswith(".tmp.bam"):
+        os.remove(bam_path)
 
     return sorted_bam
 
+
 def compress_output(file, n_threads):
+    """
+    Compresses a file using bgzip with multi-threading support.
+
+    Parameters:
+        file (str): Path to the input file to be compressed.
+        n_threads (int): Number of threads to use for compression.
+
+    Notes:
+        - The compressed file is saved with a `.gz` extension.
+        - Requires `bgzip` from the htslib package to be installed.
+    """
     try:
         subprocess.run(["bgzip", "-f", "-@", str(n_threads), file], check=True)
         print(f"Compressed file saved as: {file}.gz")
@@ -98,18 +130,7 @@ def compress_gap1_gapm_homo(bam_path, outfile_path, n_threads):
     """
     Processes a BAM file to extract relevant information and outputs a BED file.
 
-    This function reads alignments from the BAM file, extracts key information 
-    (chromosome, position, CIGAR string, MD tag, strand, and repeat count), and 
-    writes it to a BED file in a modified BED6 format. 
-
-    Parameters:
-        bam_path (str): Path to the input BAM file.
-        outfile_path (str): Base name for the output BED file
-
     Returns:
-        str: Path to the generated BED file.
-
-    Outputs:
         - A BED file ('outfile_path'.bed) containing:
             1. Chromosome
             2. Start position
@@ -118,11 +139,6 @@ def compress_gap1_gapm_homo(bam_path, outfile_path, n_threads):
             5. Repeat count of (position, CIGAR string)
             6. Strand ("+" or "-")
         - Prints the total number of reads processed.
-
-    Raises:
-        FileNotFoundError: If the BAM file is missing or cannot be opened.
-        KeyError: If required BAM tags (e.g., "MD") are unexpectedly absent.
-        ValueError: If `bam_path` is not a valid BAM file.
 
     Notes:
         - Unmapped reads are skipped.
@@ -165,6 +181,27 @@ def compress_gap1_gapm_homo(bam_path, outfile_path, n_threads):
 
 
 def compress_trans(bam_path, outfile_path, n_threads):
+    """
+    Processes a BAM file to extract paired reads and outputs a BEDPE file.
+
+    Returns:
+        - A BEDPE file ('outfile_path'.bedpe) containing:
+            1. Chromosome of read 1
+            2. Start position of read 1
+            3. Placeholder (".")
+            4. Chromosome of read 2
+            5. Start position of read 2
+            6. Placeholder (".")
+            7. CIGAR string + MD tag for read 1 and read 2 (joined with `_`)
+            8. Repeat count of (chrom1, start1, cigar1, chrom2, start2, cigar2)
+            9. Strand of read 1 ("+" or "-")
+            10. Strand of read 2 ("+" or "-")
+        - Prints the total number of paired reads processed.
+
+    Notes:
+        - Unmapped reads are skipped.
+        - Paired reads are ordered by their start positions.
+    """
     repeat_reads = defaultdict(int)
     total_pairs = 0  
     paired_reads = {}
@@ -227,6 +264,7 @@ def compress_trans(bam_path, outfile_path, n_threads):
 
     return bedpe_file
 
+
 def process_line(line):
     """
     Convert a single samtools depth line to BedGraph format.
@@ -235,14 +273,30 @@ def process_line(line):
     return (f"{fields[0]}\t{int(fields[1])-1}\t{fields[1]}\t{fields[2]}\n" 
         if len(fields) == 3 and int(fields[2]) > 0 else None)
 
+
 def process_cont(bam_path, outfile_path, n_threads):
     """
-    Convert BAM depth to BedGraph format efficiently using multiprocessing.
+    Converts BAM depth to BedGraph format efficiently using multiprocessing.
+
+    This function calculates the depth of coverage from a BAM file using 
+    `samtools depth`and converts output to BedGraph format in parallel
+    using multiprocessing for improved efficiency.
+
+    Parameters:
+        bam_path (str): Path to the input BAM file.
+        outfile_path (str): Path to the output BedGraph file (no extension).
+        n_threads (int): Number of threads to use for processing.
+
+    Returns:
+        str: Path to the generated BedGraph file.
+
+    Notes:
+        - The output file is saved with a `.bedgraph` extension.
+        - Lines with a depth value of 0 are skipped.
     """
     bedgraph_file = f"{outfile_path}.bedgraph"
 
     print(f"Processing {bam_path}...")
-    # Estimate total reads
     result = subprocess.run(
         ["samtools", "view", "-@", str(n_threads), "-c", bam_path],
         capture_output=True, text=True, check=True
@@ -256,7 +310,6 @@ def process_cont(bam_path, outfile_path, n_threads):
             stdout=subprocess.PIPE, text=True) as proc, \
          multiprocessing.Pool(int(n_threads)) as pool:
         
-        # Process lines in parallel and write results
         for result in pool.imap_unordered(process_line, proc.stdout, 
             chunksize=500):
             if result:
@@ -292,12 +345,35 @@ def process_crssant(bam_path, outfile_path):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Lossy compression for BAM into modified BED or BEDPE.")
-    parser.add_argument("type", help="gap1/gapm/trans/homo/cont/crssant")
+        description="""
+Lossy compression of SAM/BAM file to zipped BED, BEDPE, or BEDGRAPH. 
+
+'input_type' must be specified as one of the following:
+
+    cont:       Non-gapped reads. Use the 'cont' option to process normal 
+                RNA-seq data. 
+
+    crssant:    Output SAM (or bam) file from crssant. Combined gap1 and trans 
+                reads are clustered into unique groups and given a tag in
+                specifying DG/NG/TG type. Note that input file usually contains
+                'cliques' in the filename.
+
+    gap1/gapm/homoe:  One or more gaps per read on the same chromosome.
+
+    trans:      Trans-chromosome read. Individual arms are split into a paired  
+                set of reads, spanning two lines. 
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    parser.add_argument("input_type", 
+        help="Specify one of the following types of input: \
+        cont crssant gap1 gapm homo trans")
     parser.add_argument("infile", 
-        help="Input BAM (compress) or BED (decompress) file.")
+        help="Input SAM or BAM file for compresion.")
     parser.add_argument("-r", "--remove", action="store_true", 
         help="Removes the sorted BAM and index.")
+
     return parser.parse_args()
 
 
@@ -306,15 +382,14 @@ def main():
     Main function to process BAM file based on the specified analysis type.
 
     1. Parse input arguments.
-    2. Ensure BAM file is sorted and indexed.
-    3. Process the BAM file based on the name_type (gap1, gapm, homo,
-        trans, cont, crssant).
-    4. Optionally clean up intermediate sorted BAM files.
-    5. Optionally compress the output BED/BEDPE file using `bgzip`.
+    2. Ensure SAM/BAM file is sorted and indexed.
+    3. Process the SAM/BAM file based on the name_type 
+        (cont, crssant, gap1, gapm, homo, trans).
+    4. Compress the output BED/BEDPE file using `bgzip`.
+    5. Optionally clean up intermediate sorted BAM files.
     """
     args = parse_args()
     try:
-        # Attempt to get the number of processors using nproc
         nproc = subprocess.run("nproc", shell=True, check=True, 
             text=True, capture_output=True)
         n_threads = str(nproc.stdout.strip())
@@ -326,9 +401,9 @@ def main():
                 f"Defaulting to 1 thread.")
             n_threads = 1
 
-    bam_file = check_index_bam(args.infile, n_threads)
     basename = os.path.basename(args.infile).split('.bam')[0]
-    analysis_type = str(args.type)
+    bam_file = check_index_bam(args.infile, n_threads, basename)
+    analysis_type = str(args.input_type).lower()
 
     if analysis_type in ("gap1", "gapm", "homo"):
         output = compress_gap1_gapm_homo(bam_file, basename, n_threads)
