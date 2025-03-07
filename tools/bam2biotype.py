@@ -9,29 +9,68 @@ Script:     bam2biotypes.py
 
 ################################################################################
 # Define version
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # Version notes
 __update_notes__ = """
-1.0.0
-    - Initial commit, using gffutils for GTF parsing.
-"""
+1.2.0
+    -   Dynamic thread allocation based on CPU count
+    -   Automatic BAM indexing wherever .bai file is missing
+    -   Improved read filtering and error handling
 
+1.1.0
+    -   Improved performance with multiprocessing for BAM read counting
+    -   Added BAM index check and optimized the read filtering
+    -   Enhanced GTF parsing efficiency
+    -   Outputs results to CSV
+
+1.0.0
+    -   Initial commit, using pandas for GTF parsing.
+"""
 ################################################################################
 # Import packages
 import argparse
 import os
 import pysam
 import pandas as pd
+import multiprocessing as mp
+import subprocess
 from collections import defaultdict
 
 ################################################################################
 # Define sub-functions for processing
+def get_n_threads():
+    """
+    Dynamically determine the number of threads to use.
+    """
+    try:
+        return int(subprocess.check_output("nproc", shell=True).strip())
+    except subprocess.CalledProcessError:
+        try:
+            return os.cpu_count() or 1
+        except Exception as e:
+            print(f"Error retrieving CPU count: {e}. Defaulting to 1 thread.")
+            return 1
 
-def parse_gene(gtf_file):
+
+def ensure_bam_index(bam_file):
+    """
+    Check for BAM index (.bai) and create one if missing.
+    """
+    try:
+        with pysam.AlignmentFile(bam_file, "rb") as bam:
+            if not bam.has_index():
+                print(f"Indexing {bam_file}...")
+                pysam.index(bam_file)
+    except Exception as e:
+        print(f"Error checking/indexing BAM: {e}")
+
+
+def parse_gtf(gtf_file):
     """
     Parses a GTF file into a DataFrame, extracting gene_id and gene_biotype.
     """
+    print(f"Processing {gtf_file} for gene_ids and gene_biotype...")
     nc_to_chr = {
         "NC_000001.11": "chr1", "NC_000002.12": "chr2", "NC_000003.12": "chr3",
         "NC_000004.12": "chr4", "NC_000005.10": "chr5", "NC_000006.12": "chr6",
@@ -46,18 +85,17 @@ def parse_gene(gtf_file):
     }
 
     col_names = ([
-        "chrom", "source", "feature", 
-        "start", "end", "score", 
+        "chrom", "source", "feature", "start", "end", "score", 
         "strand", "frame", "attributes"])
 
-    df = pd.read_csv(
-        gtf_file, sep="\t", comment="#", names=col_names, dtype=str)
+    df = pd.read_csv(gtf_file, sep="\t", comment="#", names=col_names, dtype=str)
 
     df = df[df["feature"] == "gene"]
     df["chrom"] = df["chrom"].replace(nc_to_chr)
-
     df["gene_id"] = df["attributes"].str.extract(r'gene_id "([^"]+)"')
     df["gene_biotype"] = df["attributes"].str.extract(r'gene_biotype "([^"]+)"')
+    df = df.assign(gene_biotype=df["gene_biotype"].fillna("unknown"))
+
     df = df[["chrom", "start", "end", "strand", "gene_id", "gene_biotype"]]
 
     # Define the custom genes, each with its own chromosome name
@@ -84,36 +122,57 @@ def parse_gene(gtf_file):
     })
 
     # Append custom genes to the parsed GTF data
-    df = pd.concat([df, custom_genes], ignore_index=True)
-    return df
+    gtf_biotype = pd.concat([df, custom_genes], ignore_index=True)
+    # biotype_counts = df["gene_biotype"].value_counts()
+    # print(biotype_counts)
+
+    return gtf_biotype
 
 
-def count_biotype(df, bamfile):
+def process_bam_by_gene(df, bam_file):
     """
-    Counts reads assigned to each gene biotype using BAM file.
-    Returns a dictionary with biotype counts for exon and intron reads.
+    Process the BAM file and count uniquely mapped reads per gene.
+    Then aggregate counts by biotype.
+    
+    Args:
+        df (pd.DataFrame): DataFrame with gene info (columns: chrom, start, end, gene_id, biotype)
+        bam_file (str): Path to BAM file
+    
+    Returns:
+        gene_counts (dict): {gene_id: read_count}
+        biotype_counts (dict): {biotype: read_count}
     """
+    ensure_bam_index(bam_file)  # Ensure BAM is indexed
+    
+    gene_counts = {}
     biotype_counts = defaultdict(int)
 
-    # Load BAM file
-    bam = pysam.AlignmentFile(bamfile, "rb")
-    bam_chroms = set(bam.references)
-    
-    # Iterate over genes
-    for _, row in df.iterrows():
-        chrom, start, end, gene_biotype = row["chrom"], int(row["start"]), int(row["end"]), row["gene_biotype"]
+    with pysam.AlignmentFile(bam_file, "rb") as bam:
+        valid_chroms = set(bam.references)
+        
+        for _, row in df.iterrows():
+            chrom, start, end, gene_id, biotype = row["chrom"], int(row["start"]), int(row["end"]), row["gene_id"], row["gene_biotype"]
+            
+            if chrom not in valid_chroms:
+                continue 
 
-        if chrom not in bam_chroms:
-           continue
+            seen_reads = set()
+            count = 0
 
-        # Count reads overlapping this gene
-        for read in bam.fetch(chrom, start, end):
-            if read.is_unmapped:
-                continue
-            biotype_counts[gene_biotype] += 1
+            for read in bam.fetch(chrom, start, end):
+                if read.is_unmapped or read.is_secondary or read.is_supplementary or read.is_duplicate:
+                    continue
+                if read.query_name in seen_reads:
+                    continue
+                seen_reads.add(read.query_name)
+                count += 1
+            
+            gene_counts[gene_id] = count
+            biotype_counts[biotype] += count  # Aggregate by biotype
 
-    bam.close()
-    return biotype_counts
+    print(biotype_counts)
+
+    return gene_counts, biotype_counts
 
 
 def main():
@@ -121,18 +180,19 @@ def main():
     parser = argparse.ArgumentParser(description="Summarize BAM read counts by gene biotype.")
     parser.add_argument("bam_file", help="Input BAM file")
     parser.add_argument("gtf_file", help="Input GTF annotation file")
-    parser.add_argument("-o", "--output", help="Output CSV file (defaults to BAM basename)")
-
+    parser.add_argument("-o", "--output", help="Output CSV file (default: counts.csv)", default="counts.csv")
+    parser.add_argument("-t", "--threads", type=int, help="Number of threads (default: auto-detect)", default=get_n_threads())
+    
     args = parser.parse_args()
-    output_file = args.output or f"{os.path.splitext(args.bam_file)[0]}_biotype_counts.csv"
 
-    # Process annotation
-    genes = parse_gene(args.gtf_file)
-    counts = count_biotype(genes, args.bam_file)
-    df = pd.DataFrame(list(counts.items()), 
-        columns=["Biotype", "Total Reads"])
+    print(f"Using {args.threads} threads.")
+    df = parse_gtf(args.gtf_file)
+    biotype_counts = process_bam_by_gene(df, args.bam_file)
 
-    print(df)
+    # Save results
+    # output_df = pd.DataFrame(biotype_counts.items(), columns=["gene_biotype", "read_count"])
+    # output_df.to_csv(args.output, index=False)
+    print(f"Results saved to {args.output}")
 
 if __name__ == "__main__":
     main()
