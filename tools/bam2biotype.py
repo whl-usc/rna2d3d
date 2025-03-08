@@ -122,8 +122,22 @@ def parse_gtf(gtf_file):
     })
 
     # Append custom genes to the parsed GTF data
-    gtf_biotype = pd.concat([df, custom_genes], ignore_index=True)
-    # biotype_counts = df["gene_biotype"].value_counts()
+    df = pd.concat([df, custom_genes], ignore_index=True)
+    
+    df["start"] = df["start"].astype(int)
+    df["end"] = df["end"].astype(int)
+
+    gtf_biotype = df.groupby("gene_id").agg({
+        "chrom": "first",
+        "start": "min",
+        "end": "max",
+        "strand": "first",
+        "gene_biotype": "first"
+    }).reset_index()
+
+    # gene_counts = len(gtf_biotype["gene_id"])
+    # print(gene_counts)
+    # biotype_counts = gtf_biotype["gene_biotype"].value_counts()
     # print(biotype_counts)
 
     return gtf_biotype
@@ -146,6 +160,7 @@ def process_bam_by_gene(df, bam_file):
     
     gene_counts = {}
     biotype_counts = defaultdict(int)
+    seen_reads = set()
 
     with pysam.AlignmentFile(bam_file, "rb") as bam:
         valid_chroms = set(bam.references)
@@ -156,9 +171,7 @@ def process_bam_by_gene(df, bam_file):
             if chrom not in valid_chroms:
                 continue 
 
-            seen_reads = set()
             count = 0
-
             for read in bam.fetch(chrom, start, end):
                 if read.is_unmapped or read.is_secondary or read.is_supplementary or read.is_duplicate:
                     continue
@@ -168,7 +181,7 @@ def process_bam_by_gene(df, bam_file):
                 count += 1
             
             gene_counts[gene_id] = count
-            biotype_counts[biotype] += count  # Aggregate by biotype
+            biotype_counts[biotype] += count
 
     print(biotype_counts)
 
@@ -186,13 +199,19 @@ def main():
     args = parser.parse_args()
 
     print(f"Using {args.threads} threads.")
-    df = parse_gtf(args.gtf_file)
-    biotype_counts = process_bam_by_gene(df, args.bam_file)
+    gtf_df = parse_gtf(args.gtf_file)
+    gene_counts, biotype_counts = process_bam_by_gene(gtf_df, args.bam_file)
 
-    # Save results
-    # output_df = pd.DataFrame(biotype_counts.items(), columns=["gene_biotype", "read_count"])
-    # output_df.to_csv(args.output, index=False)
-    print(f"Results saved to {args.output}")
+    # Save biotype counts
+    biotype_output_df = pd.DataFrame(biotype_counts.items(), columns=["gene_biotype", "read_count"])
+    biotype_output_df.to_csv(args.output, index=False)
+    print(f"Biotype results saved to {args.output}")
+
+    # Save per-gene read counts
+    gene_output_file = args.output.replace(".csv", "_gene_counts.csv")
+    gene_output_df = pd.DataFrame(gene_counts.items(), columns=["gene_id", "read_count"])
+    gene_output_df.to_csv(gene_output_file, index=False)
+    print(f"Gene count results saved to {gene_output_file}")
 
 if __name__ == "__main__":
     main()
