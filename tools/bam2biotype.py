@@ -29,13 +29,14 @@ __update_notes__ = """
 """
 ################################################################################
 # Import packages
-import argparse
-import os
-import pysam
-import pandas as pd
-import multiprocessing as mp
-import subprocess
 from collections import defaultdict
+import argparse
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import pandas as pd
+import pysam
+import subprocess
 
 ################################################################################
 # Define sub-functions for processing
@@ -131,8 +132,8 @@ def parse_gtf(gtf_file):
         "chrom": "first",
         "start": "min",
         "end": "max",
-        "strand": "first",
-        "gene_biotype": "first"
+        "strand": lambda x: x.iloc[0] if x.nunique() == 1 else "conflict",
+        "gene_biotype": lambda x: x.iloc[0] if x.nunique() == 1 else "multiple"
     }).reset_index()
 
     # gene_counts = len(gtf_biotype["gene_id"])
@@ -143,49 +144,98 @@ def parse_gtf(gtf_file):
     return gtf_biotype
 
 
+def read_overlaps_gene(read_start, read_end, gene_start, gene_end, threshold=0.5):
+    """
+    Check if a read overlaps a gene by at least the given threshold.
+    """
+    overlap_length = max(0, min(read_end, gene_end) - max(read_start, gene_start))
+    read_length = read_end - read_start
+    
+    return read_length > 0 and (overlap_length / read_length) >= threshold
+
+
+
 def process_bam_by_gene(df, bam_file):
     """
     Process the BAM file and count uniquely mapped reads per gene.
     Then aggregate counts by biotype.
-    
+
     Args:
         df (pd.DataFrame): DataFrame with gene info (columns: chrom, start, end, gene_id, biotype)
         bam_file (str): Path to BAM file
-    
+
     Returns:
         gene_counts (dict): {gene_id: read_count}
         biotype_counts (dict): {biotype: read_count}
     """
-    ensure_bam_index(bam_file)  # Ensure BAM is indexed
-    
-    gene_counts = {}
+    ensure_bam_index(bam_file)  
+
+    gene_counts = defaultdict(int)
     biotype_counts = defaultdict(int)
-    seen_reads = set()
 
     with pysam.AlignmentFile(bam_file, "rb") as bam:
         valid_chroms = set(bam.references)
-        
+
         for _, row in df.iterrows():
             chrom, start, end, gene_id, biotype = row["chrom"], int(row["start"]), int(row["end"]), row["gene_id"], row["gene_biotype"]
-            
+
             if chrom not in valid_chroms:
                 continue 
 
-            count = 0
+            seen_reads = set()  # Track reads per gene
+
             for read in bam.fetch(chrom, start, end):
                 if read.is_unmapped or read.is_secondary or read.is_supplementary or read.is_duplicate:
                     continue
-                if read.query_name in seen_reads:
-                    continue
-                seen_reads.add(read.query_name)
-                count += 1
-            
-            gene_counts[gene_id] = count
-            biotype_counts[biotype] += count
+                
+                read_start, read_end = read.reference_start, read.reference_end
 
-    print(biotype_counts)
+                if read.query_name in seen_reads:  # Prevent duplicate counting per gene
+                    continue
+
+                if read_overlaps_gene(read_start, read_end, start, end):  
+                    seen_reads.add(read.query_name)
+                    gene_counts[gene_id] += 1
+                    biotype_counts[biotype] += 1  
 
     return gene_counts, biotype_counts
+
+
+def plot_stacked_biotype_counts(biotype_counts):
+    """
+    Plots a stacked bar chart with a single bar representing read counts split by biotype.
+
+    Args:
+        biotype_counts (dict): Dictionary with biotypes as keys and read counts as values.
+    """
+    # Convert to DataFrame
+    df = pd.DataFrame(list(biotype_counts.items()), columns=["Biotype", "Read Count"])
+    df = df.sort_values(by="Read Count", ascending=False)
+
+    # Normalize to proportions for better cross-sample comparison
+    df["Proportion"] = df["Read Count"] / df["Read Count"].sum()
+
+    # Define colormap
+    colors = plt.cm.viridis(np.linspace(0, 1, len(df)))
+
+    # Plot stacked bar
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    bottom_values = np.zeros(1)  # Track cumulative proportions for stacking
+    for i, (biotype, proportion, color) in enumerate(zip(df["Biotype"], df["Proportion"], colors)):
+        ax.barh(["Reads"], proportion, left=bottom_values, color=color, label=biotype)
+        bottom_values += proportion  # Stack each biotype on top
+
+    # Labels & formatting
+    ax.set_xlabel("Proportion of Reads")
+    ax.set_title("Biotype Distribution as Stacked Proportions")
+
+    # Add legend
+    ax.legend(title="Biotype", loc="center left", bbox_to_anchor=(1, 0.5))
+
+    # Save as PNG with 360 dpi
+    plt.tight_layout()
+    plt.savefig("stacked_biotype_read_count.png", dpi=360, bbox_inches="tight")
 
 
 def main():
@@ -202,6 +252,8 @@ def main():
     gtf_df = parse_gtf(args.gtf_file)
     gene_counts, biotype_counts = process_bam_by_gene(gtf_df, args.bam_file)
 
+    plot_stacked_biotype_counts(biotype_counts)    
+    
     # Save biotype counts
     biotype_output_df = pd.DataFrame(biotype_counts.items(), columns=["gene_biotype", "read_count"])
     biotype_output_df.to_csv(args.output, index=False)
