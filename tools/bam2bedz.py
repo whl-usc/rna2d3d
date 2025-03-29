@@ -390,7 +390,7 @@ Lossy compression of SAM/BAM file to zipped BED, BEDPE, or BEDGRAPH.
                 specifying DG/NG/TG type. Note that input file usually contains
                 'cliques' in the filename.
 
-    gap1/gapm/homoe:  One or more gaps per read on the same chromosome.
+    gap1/gapm/homo:  One or more gaps per read on the same chromosome.
 
     trans:      Trans-chromosome read. Individual arms are split into a paired  
                 set of reads, spanning two lines. 

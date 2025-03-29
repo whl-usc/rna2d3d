@@ -71,23 +71,23 @@ echo
 ####################################################################################################
 
 
-#!/bin/bash
-#SBATCH --ntasks=1
-#SBATCH --partition=epyc-64
-#SBATCH --time=24:00:00
-#SBATCH --cpus-per-task=8
-#SBATCH --mem-per-cpu=2G
+# #!/bin/bash
+# #SBATCH --ntasks=1
+# #SBATCH --partition=epyc-64
+# #SBATCH --time=24:00:00
+# #SBATCH --cpus-per-task=8
+# #SBATCH --mem-per-cpu=2G
     
-for DIR in */; do
-    if [[ -d "$DIR" && $DIR != mm* ]]; then
-        cd $DIR
-        dir_name=$(basename "$DIR")
-        echo "Processing ${dir_name}"
-        input="${dir_name}Aligned.sortedByCoord.out.bam"
-        genebed="/project/wilsonhl_1236/wilsonhl/snoRNA_expression/annotations/hg38_anno.bed"
-        bedtools genomecov -ibam "${input}" -5 -bg > "${dir_name}_5end.bedgraph"
-        bedtools genomecov -ibam "${input}" -3 -bg > "${dir_name}_3end.bedgraph"
-        python /project/wilsonhl_1236/wilsonhl/snoRNA_expression/bin/RiboMethScore_calling.py "${dir_name}_5end.bedgraph" "${dir_name}_3end.bedgraph" both "${dir_name}_RMS"
-        cd ../
-    fi
-done
+# for DIR in */; do
+#     if [[ -d "$DIR" && $DIR != mm* ]]; then
+#         cd $DIR
+#         dir_name=$(basename "$DIR")
+#         echo "Processing ${dir_name}"
+#         input="${dir_name}Aligned.sortedByCoord.out.bam"
+#         genebed="/project/wilsonhl_1236/wilsonhl/snoRNA_expression/annotations/hg38_anno.bed"
+#         bedtools genomecov -ibam "${input}" -5 -bg > "${dir_name}_5end.bedgraph"
+#         bedtools genomecov -ibam "${input}" -3 -bg > "${dir_name}_3end.bedgraph"
+#         python /project/wilsonhl_1236/wilsonhl/snoRNA_expression/bin/RiboMethScore_calling.py "${dir_name}_5end.bedgraph" "${dir_name}_3end.bedgraph" both "${dir_name}_RMS"
+#         cd ../
+#     fi
+# done
