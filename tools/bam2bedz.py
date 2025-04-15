@@ -90,11 +90,16 @@ def check_index_bam(bam_path, n_threads, basename):
     sorted_bam = bam_path.replace(".bam", ".sorted.bam")
     index_file = sorted_bam + ".bai"
 
-    if not os.path.exists(index_file):
-        print(f"Index file not found. Sorting and indexing...")
+    if not os.path.exists(sorted_bam):
+        print(f"Sorted BAM file not found. Sorting and indexing...")
         pysam.sort("-@", str(n_threads), "-o", sorted_bam, bam_path)
+        print(f"Input file sorted and indexed...\n")
+
+    elif not os.path.exists(index_file):
+        print(f"Index file not found. Sorting and indexing...")
         pysam.index(sorted_bam)
         print(f"Input file sorted and indexed...\n")
+
     else:
         print(f"Sorted and indexed BAM file already exists:\t{sorted_bam}\n")
 
@@ -143,42 +148,47 @@ def compress_gap1_gapm_homo(bam_path, outfile_path, n_threads):
     Notes:
         - Unmapped reads are skipped.
         - Function tracks repeats for each (position, CIGAR string) pair.
+        - Only the (position, CIGAR string) pairs with the highest repeat count are kept.
     """
-    repeat_reads = defaultdict(int)  # Count repeats of (position, cigar_items)
-    total_reads = 0 
-    bed_file = (f"{outfile_path}.bed")
+    repeat_counts = defaultdict(int)  # Stores repeat counts per (position, CIGAR)
+    read_data = {}  # Stores details for writing output
+    total_reads = 0
+    bed_file = f"{outfile_path}.bed"
 
     print(f"Processing {bam_path}...")
-    with open(bed_file, 'w') as out_file:    
-        with pysam.AlignmentFile(bam_path, "rb", threads=n_threads) as bam:
-            for read in bam:
-                if read.is_unmapped:
-                    continue
 
-                # Retain only essential information for BED6 format
-                chrom = bam.get_reference_name(read.reference_id)
-                position = read.reference_start
-                cigar_items = read.cigarstring
-                md_tag = read.get_tag("MD") if read.has_tag("MD") else "NA"
-                strand = '-' if read.is_reverse else '+'
+    # First pass: Count occurrences of (position, CIGAR)
+    with pysam.AlignmentFile(bam_path, "rb", threads=n_threads) as bam:
+        for read in bam:
+            if read.is_unmapped:
+                continue
 
-                # Increment repeat count for (position, cigar_items) get count
-                repeat_reads[(position, cigar_items)] += 1
-                repeats = repeat_reads[(position, cigar_items)]
+            chrom = bam.get_reference_name(read.reference_id)
+            position = read.reference_start
+            cigar_items = read.cigarstring
+            md_tag = read.get_tag("MD") if read.has_tag("MD") else "NA"
+            strand = '-' if read.is_reverse else '+'
 
-                out_file.write(
-                    f"{chrom}\t{position}\t.\t"
-                    f"{read.cigarstring}{'_'+md_tag}\t"
-                    f"{repeats}\t{strand}\n"
+            key = (chrom, position, cigar_items)
+            repeat_counts[key] += 1  # Increment repeat count
+            total_reads += 1
+
+            # Store BED entry if this is the highest count seen so far
+            if repeat_counts[key] > read_data.get(key, (0, ""))[0]:
+                read_data[key] = (
+                    repeat_counts[key],  # Store the count
+                    f"{chrom}\t{position}\t.\t{cigar_items}_{md_tag}\t{repeat_counts[key]}\t{strand}\n"
                 )
 
-                total_reads += 1 
+    # Write only entries with max repeat counts
+    with open(bed_file, 'w') as out_file:
+        for _, (count, line) in read_data.items():
+            out_file.write(line)
 
     print(f"Reads processed:\t{total_reads}")
     print(f"Results saved to:\t{bed_file}")
 
     return bed_file
-
 
 def compress_trans(bam_path, outfile_path, n_threads):
     """
@@ -202,68 +212,70 @@ def compress_trans(bam_path, outfile_path, n_threads):
         - Unmapped reads are skipped.
         - Paired reads are ordered by their start positions.
     """
-    repeat_reads = defaultdict(int)
-    total_pairs = 0  
+    repeat_counts = defaultdict(int)  # Track max repeat counts per paired read key
+    read_data = {}  # Store corresponding BEDPE entry for max repeat counts
     paired_reads = {}
-    bedpe_file = (f"{outfile_path}.bedpe")
+    total_pairs = 0
+    bedpe_file = f"{outfile_path}.bedpe"
 
     print(f"Processing {bam_path}...")
+
+    # Read BAM file and store paired reads
+    with pysam.AlignmentFile(bam_path, "rb", threads=n_threads) as bam:
+        for read in bam:
+            if read.is_unmapped:
+                continue
+
+            read_name = read.query_name
+            if read_name not in paired_reads:
+                paired_reads[read_name] = []
+            paired_reads[read_name].append(read)
+
+    # Process paired reads
+    for read_name, reads in paired_reads.items():
+        if len(reads) < 2:
+            continue  # Skip unpaired reads
+
+        read1, read2 = reads
+        if read1.reference_start > read2.reference_start:
+            read1, read2 = read2, read1  # Ensure order by start position
+
+        # Extract key fields
+        chrom1, start1 = read1.reference_name, read1.reference_start
+        chrom2, start2 = read2.reference_name, read2.reference_start
+        cigar1, cigar2 = read1.cigarstring, read2.cigarstring
+        md1 = read1.get_tag("MD") if read1.has_tag("MD") else "NA"
+        md2 = read2.get_tag("MD") if read2.has_tag("MD") else "NA"
+        strand1 = '-' if read1.is_reverse else '+'
+        strand2 = '-' if read2.is_reverse else '+'
+
+        # Define unique key for the paired read
+        key = (chrom1, start1, cigar1, chrom2, start2, cigar2)
+
+        # Update repeat count
+        repeat_counts[key] += 1
+        total_pairs += 1
+
+        # Store BEDPE entry if this is the highest count seen so far
+        if repeat_counts[key] > read_data.get(key, (0, ""))[0]:
+            read_data[key] = (
+                repeat_counts[key],  # Store the count
+                f"{chrom1}\t{start1}\t.\t"
+                f"{chrom2}\t{start2}\t.\t"
+                f"{cigar1}_{md1}-{cigar2}_{md2}\t"
+                f"{repeat_counts[key]}\t"
+                f"{strand1}\t{strand2}\n"
+            )
+
+    # Write only entries with max repeat counts
     with open(bedpe_file, 'w') as out_file:
-        with pysam.AlignmentFile(bam_path, "rb", threads=n_threads) as bam:
-            for read in bam:
-                if read.is_unmapped:
-                    continue
+        for _, (count, line) in read_data.items():
+            out_file.write(line)
 
-                read_name = read.query_name
-
-                if read_name not in paired_reads:
-                    paired_reads[read_name] = []
-                paired_reads[read_name].append(read)
-
-            for read_name, reads in paired_reads.items():
-                if len(reads) < 2:
-                    continue
-
-                read1, read2 = reads
-                if read1.reference_start > read2.reference_start:
-                    read1, read2 = read2, read1  # Ensure order start position
-
-                # Extract key fields
-                chrom1, start1 = read1.reference_name, read1.reference_start
-                chrom2, start2 = read2.reference_name, read2.reference_start
-
-                cigar1 = read1.cigarstring
-                cigar2 = read2.cigarstring
-                md1 = read1.get_tag("MD") if read1.has_tag("MD") else "NA"
-                md2 = read2.get_tag("MD") if read2.has_tag("MD") else "NA"
-
-                strand1 = '-' if read1.is_reverse else '+'
-                strand2 = '-' if read2.is_reverse else '+'
-
-                # Increment repeat count
-                repeat_reads[(
-                    chrom1, start1, cigar1, 
-                    chrom2, start2, cigar2)] += 1
-                repeats = repeat_reads[(
-                    chrom1, start1, cigar1, 
-                    chrom2, start2, cigar2)]
-
-                # Write in BEDPE format
-                out_file.write(
-                    f"{chrom1}\t{start1}\t.\t"
-                    f"{chrom2}\t{start2}\t.\t"
-                    f"{cigar1}_{md1}-{cigar2}_{md2}\t"
-                    f"{repeats}\t"
-                    f"{strand1}\t{strand2}\n"
-                )
-
-                total_pairs += 1
-
-    print(f"Reads processed:\t{total_pairs}")
+    print(f"Paired reads processed:\t{total_pairs}")
     print(f"Results saved to:\t{bedpe_file}")
 
     return bedpe_file
-
 
 def process_line(line):
     """
@@ -279,7 +291,7 @@ def process_cont(bam_path, outfile_path, n_threads):
     Converts BAM depth to BedGraph format efficiently using multiprocessing.
 
     This function calculates the depth of coverage from a BAM file using 
-    `samtools depth`and converts output to BedGraph format in parallel
+    samtools depth and converts output to BedGraph format in parallel
     using multiprocessing for improved efficiency.
 
     Parameters:
@@ -291,7 +303,7 @@ def process_cont(bam_path, outfile_path, n_threads):
         str: Path to the generated BedGraph file.
 
     Notes:
-        - The output file is saved with a `.bedgraph` extension.
+        - The output file is saved with a .bedgraph extension.
         - Lines with a depth value of 0 are skipped.
     """
     bedgraph_file = f"{outfile_path}.bedgraph"
@@ -337,40 +349,56 @@ def process_crssant(bam_path, outfile_path, n_threads):
         - Unmapped reads are skipped.
         - Function tracks repeats for each (position, CIGAR string) pair.
     """
-    repeat_reads = defaultdict(int)  # Count repeats of (position, cigar_items)
-    total_reads = 0 
-    bed_file = (f"{outfile_path}.bed")
+    repeat_counts = defaultdict(int)  # Track max repeat counts per (position, CIGAR)
+    read_data = {} # Store corresponding BED entry for max repeat counts
+    total_reads = 0
+    bed_file = f"{outfile_path}.bed"
 
     print(f"Processing {bam_path}...")
-    with open(bed_file, 'w') as out_file:    
-        with pysam.AlignmentFile(bam_path, "rb", threads=n_threads) as bam:
-            for read in bam:
-                if read.is_unmapped:
-                    continue
 
-                # Retain only essential information for BED6 format
-                chrom = bam.get_reference_name(read.reference_id)
-                position = read.reference_start
-                cigar_items = read.cigarstring
-                md_tag = read.get_tag("MD") if read.has_tag("MD") else "NA"
-                strand = '-' if read.is_reverse else '+'
-                dg_raw = read.get_tag("DG") if read.has_tag("DG") else "NA"
+    with pysam.AlignmentFile(bam_path, "rb", threads=n_threads) as bam:
+        for read in bam:
+            if read.is_unmapped:
+                continue
+
+            # Extract alignment details
+            chrom = bam.get_reference_name(read.reference_id)
+            position = read.reference_start
+            cigar_items = read.cigarstring
+            md_tag = read.get_tag("MD") if read.has_tag("MD") else "NA"
+            strand = '-' if read.is_reverse else '+'
+
+            # Process DG tag safely
+            if read.has_tag("DG"):
+                dg_raw = read.get_tag("DG")
                 dg_tag = (dg_raw.replace(",", "_").rsplit(",\t", 1)[0] + ":" + 
-                    dg_raw.rsplit(",", 1)[-1])
+                          dg_raw.rsplit(",", 1)[-1])
+            else:
+                dg_tag = "NA"
 
-                # Increment repeat count for (position, cigar_items) get count
-                repeat_reads[(position, cigar_items)] += 1
-                repeats = repeat_reads[(position, cigar_items)]
-                out_file.write(
+            # Create a unique key for tracking repeats
+            key = (chrom, position, cigar_items, strand)
+
+            # Update repeat count
+            repeat_counts[key] += 1
+            total_reads += 1
+
+            # Store BED entry if this is the highest count seen so far
+            if repeat_counts[key] > read_data.get(key, (0, ""))[0]:
+                read_data[key] = (
+                    repeat_counts[key],  # Store the count
                     f"{chrom}\t{position}\t{dg_tag}\t"
-                    f"{read.cigarstring}{'_'+md_tag}\t"
-                    f"{repeats}\t{strand}\n"
+                    f"{cigar_items}_{md_tag}\t"
+                    f"{repeat_counts[key]}\t{strand}\n"
                 )
 
-                total_reads += 1 
+    # Write only entries with max repeat counts
+    with open(bed_file, 'w') as out_file:
+        for _, (count, line) in read_data.items():
+            out_file.write(line)
 
-    print(f"Reads processed:\t\t{total_reads}")
-    print(f"Results saved to:\t\t{bed_file}")
+    print(f"Reads processed:\t{total_reads}")
+    print(f"Results saved to:\t{bed_file}")
 
     return bed_file
 
