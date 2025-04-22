@@ -91,15 +91,11 @@ def check_index_bam(bam_path, n_threads, basename):
     index_file = sorted_bam + ".bai"
 
     if not os.path.exists(sorted_bam):
-        print(f"Sorted BAM file not found. Sorting and indexing...")
+        print(f"Sorted BAM file not found. Sorting...")
         pysam.sort("-@", str(n_threads), "-o", sorted_bam, bam_path)
-        print(f"Input file sorted and indexed...\n")
-
-    elif not os.path.exists(index_file):
-        print(f"Index file not found. Sorting and indexing...")
+    if not os.path.exists(index_file):
+        print(f"Index file not found. Indexing...")
         pysam.index(sorted_bam)
-        print(f"Input file sorted and indexed...\n")
-
     else:
         print(f"Sorted and indexed BAM file already exists:\t{sorted_bam}\n")
 
@@ -212,70 +208,48 @@ def compress_trans(bam_path, outfile_path, n_threads):
         - Unmapped reads are skipped.
         - Paired reads are ordered by their start positions.
     """
-    repeat_counts = defaultdict(int)  # Track max repeat counts per paired read key
-    read_data = {}  # Store corresponding BEDPE entry for max repeat counts
-    paired_reads = {}
-    total_pairs = 0
-    bedpe_file = f"{outfile_path}.bedpe"
+    chimeric_reads = defaultdict(list)
+    bedpe_lines = []
+    chim_id = 0
 
-    print(f"Processing {bam_path}...")
-
-    # Read BAM file and store paired reads
     with pysam.AlignmentFile(bam_path, "rb", threads=n_threads) as bam:
         for read in bam:
-            if read.is_unmapped:
-                continue
+            chimeric_reads[read.query_name].append(read)
 
-            read_name = read.query_name
-            if read_name not in paired_reads:
-                paired_reads[read_name] = []
-            paired_reads[read_name].append(read)
+    for read_name, reads in chimeric_reads.items():
+        if len(reads) != 2:
+            continue  # Only handle clean 2-part mappings
 
-    # Process paired reads
-    for read_name, reads in paired_reads.items():
-        if len(reads) < 2:
-            continue  # Skip unpaired reads
+        r_primary = next(r for r in reads if not r.is_supplementary)
+        r_supp = next(r for r in reads if r.is_supplementary)
+        r1, r2 = r_primary, r_supp
 
-        read1, read2 = reads
-        if read1.reference_start > read2.reference_start:
-            read1, read2 = read2, read1  # Ensure order by start position
+        chrom1, start1 = r1.reference_name, r1.reference_start
+        chrom2, start2 = r2.reference_name, r2.reference_start
+        cigar1, cigar2 = r1.cigarstring, r2.cigarstring
+        md1 = r1.get_tag("MD") if r1.has_tag("MD") else "NA"
+        md2 = r2.get_tag("MD") if r2.has_tag("MD") else "NA"
+        strand1 = '-' if r1.is_reverse else '+'
+        strand2 = '-' if r2.is_reverse else '+'
 
-        # Extract key fields
-        chrom1, start1 = read1.reference_name, read1.reference_start
-        chrom2, start2 = read2.reference_name, read2.reference_start
-        cigar1, cigar2 = read1.cigarstring, read2.cigarstring
-        md1 = read1.get_tag("MD") if read1.has_tag("MD") else "NA"
-        md2 = read2.get_tag("MD") if read2.has_tag("MD") else "NA"
-        strand1 = '-' if read1.is_reverse else '+'
-        strand2 = '-' if read2.is_reverse else '+'
+        bedpe_line = (
+            f"{chrom1}\t{start1}\t.\t"
+            f"{chrom2}\t{start2}\t.\t"
+            f"{cigar1}_{md1}-{cigar2}_{md2}\t"
+            f"{chim_id}\t"
+            f"{strand1}\t{strand2}\n"
+        )
+        bedpe_lines.append(bedpe_line)
+        chim_id += 1
 
-        # Define unique key for the paired read
-        key = (chrom1, start1, cigar1, chrom2, start2, cigar2)
+    out_path = f"{outfile_path}.bedpe"
+    with open(out_path, 'w') as f:
+        f.writelines(bedpe_lines)
 
-        # Update repeat count
-        repeat_counts[key] += 1
-        total_pairs += 1
+    print(f"Chimeric (primary + supp) pairs written: {chim_id}")
+    print(f"Output: {out_path}")
+    return out_path
 
-        # Store BEDPE entry if this is the highest count seen so far
-        if repeat_counts[key] > read_data.get(key, (0, ""))[0]:
-            read_data[key] = (
-                repeat_counts[key],  # Store the count
-                f"{chrom1}\t{start1}\t.\t"
-                f"{chrom2}\t{start2}\t.\t"
-                f"{cigar1}_{md1}-{cigar2}_{md2}\t"
-                f"{repeat_counts[key]}\t"
-                f"{strand1}\t{strand2}\n"
-            )
-
-    # Write only entries with max repeat counts
-    with open(bedpe_file, 'w') as out_file:
-        for _, (count, line) in read_data.items():
-            out_file.write(line)
-
-    print(f"Paired reads processed:\t{total_pairs}")
-    print(f"Results saved to:\t{bedpe_file}")
-
-    return bedpe_file
 
 def process_line(line):
     """
@@ -332,7 +306,7 @@ def process_cont(bam_path, outfile_path, n_threads):
 
 
 def process_crssant(bam_path, outfile_path, n_threads):
-    """
+    """π
     Processes a BAM file to extract relevant information and outputs a BED file.
 
     Returns:
