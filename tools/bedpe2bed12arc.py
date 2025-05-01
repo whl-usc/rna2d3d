@@ -85,7 +85,7 @@ def bedpe_to_bed12(bedpe_path, add_color=True):
     return bed12_records
 
 
-def color_arcs(bed12_records, max_intensity=180):
+def color_arcs(bed12_records, max_intensity=200):
     """
     Assigns RGB colors to BED12 records based on DG score, sorting only within
     records that share the same base name (split from column 4).
@@ -99,18 +99,20 @@ def color_arcs(bed12_records, max_intensity=180):
     """
     from collections import defaultdict
 
-    # Convert score to float for scaling
-    for rec in bed12_records:
-        rec[4] = float(rec[4])
-
-    # Group records by split name from column 4
     grouped_records = defaultdict(list)
+
+    # Extract score from column 4 and group by base_name
     for rec in bed12_records:
         name_parts = rec[3].split(',')
+        if len(name_parts) < 4:
+            continue  # skip malformed entries
         base_name = ','.join(name_parts[:2])
+        dg_score = float(name_parts[-1])
+        rec[3] = ','.join(name_parts[:3])  # keep name + ID if needed
+        rec[4] = str(dg_score)             # overwrite BED12 score column
         grouped_records[base_name].append(rec)
 
-    # Define colors as base RGB values
+    # Define base colors to cycle through
     color_list = [
         (0, 0, 255),     # Blue
         (255, 0, 0),     # Red
@@ -118,35 +120,20 @@ def color_arcs(bed12_records, max_intensity=180):
         (255, 0, 255)    # Purple
     ]
 
-    # Process each group independently
     updated_records = []
+    gamma = 1.5
+
     for idx, (base_name, group) in enumerate(grouped_records.items()):
-        # Cycle through rainbow colors based on group index
         base_color = color_list[idx % len(color_list)]
         scores = [float(rec[4]) for rec in group]
-        max_log_score = math.log1p(max(scores)) if scores else 1  
-
-        # Sort by raw score (optional: keeps higher scores darker)
-        group.sort(key=lambda x: float(x[4]))
-
-        # Set custom gamma as 0.5
-        gamma = 1.5
+        max_log_score = math.log1p(max(scores)) if scores else 1
 
         for rec in group:
             raw_score = float(rec[4])
             log_score = math.log1p(raw_score)
-
-            # Invert intensity: higher score = darker color
             intensity_scale = (1 - (log_score / max_log_score) ** gamma)
-
-            adj_color = tuple(
-                int(c * intensity_scale) for c in base_color
-            )
-
-            # Update RGB and score fields
+            adj_color = tuple(int(c * intensity_scale) for c in base_color)
             rec[8] = f"{adj_color[0]},{adj_color[1]},{adj_color[2]}"
-            rec[4] = str(int(raw_score))
-
             updated_records.append(rec)
 
     return updated_records
@@ -165,7 +152,7 @@ def parse_args():
     parser.add_argument("bedpe", help="Input BEDPE file summarizing DGs.")
     parser.add_argument("bed12", help="Output BED12 file with arcs.")
     parser.add_argument(
-        "--no_color", action="store_false", dest="add_color", 
+        "--no_color", action="store_false", dest="add_color",
         help="Disable RGB coloring based on DG scores."
     )
 
@@ -184,11 +171,11 @@ def main():
 
     # Write to BED12 file
     outfile = args.bed12 if args.bed12.endswith(".bed") else f"{args.bed12}.bed"
-    
+
     with open(outfile, 'w') as bed12file:
         bed12file.write(
             f'track name="{args.bed12}" graphType=arc '
-            f'itemRgb="On" height=50\n'
+            f'itemRgb="On" height=100\n'
         )
         for rec in bed12_records:
             bed12file.write("\t".join(rec) + "\n")
