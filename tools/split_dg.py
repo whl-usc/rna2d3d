@@ -76,11 +76,25 @@ TO DO:
 
 ################################################################################
 # Define version
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 # Version notes
 __update_notes__ = """
--   Initial commit for function logic.
+2.0.0
+    -   Added new function to split DGs into separate files ()
+
+1.2.0
+    -   Implemented functions to write out statistics (-s, --stats)
+        write_statistics_csv
+        write_deviation_summary_csv
+
+1.1.0
+    -   Added threshold setting for classify_arm_deviations(-t, --threshold)
+
+1.0.0
+    -   Initial commit for function logic.
+    -   extract_dgs reads bam file, returns statistics on DGs.
+    -   classify_arm_deviations provides logic for categorizing arm lengths.
 """
 ################################################################################
 
@@ -254,7 +268,6 @@ def parse_arguments():
     process_DGs.add_argument('-t', '--threshold', type=float, default=0.25)
     process_DGs.add_argument('-s', '--stats', action='store_true')
 
-
     return parser.parse_args()
 ################################################################################
 
@@ -299,8 +312,8 @@ def main():
             write_statistics_csv(dg_stats, stats_csv)
             write_deviation_summary_csv(deviations, deviations_csv)
 
-            print(f"\n[+] Written DG statistics to: {stats_csv}")
-            print(f"[+] Written deviation summary to: {deviations_csv}")        
+            print(f"\n[+] DG statistics written to: {stats_csv}")
+            print(f"[+] Arm deviation summary written to: {deviations_csv}")
 
 if __name__ == "__main__":
     main()
