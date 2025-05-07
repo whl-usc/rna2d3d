@@ -76,12 +76,16 @@ TO DO:
 
 ################################################################################
 # Define version
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 # Version notes
 __update_notes__ = """
+2.1.0
+    -   Sorting and indexing of the split_dg files
+
 2.0.0
-    -   Added new function to split DGs into separate files ()
+    -   Added new function to split DGs into separate files (-S, --split)
+        split_dgs
 
 1.2.0
     -   Implemented functions to write out statistics (-s, --stats)
@@ -170,6 +174,7 @@ def extract_dgs(bam_file):
 
     return dg_groups, dg_stats
 
+
 def classify_arm_deviations(dg_groups, dg_stats, threshold=0.25, use_mean=False):
     """
     Classify each DG read arm as high/low/normal relative to its group's mean/median.
@@ -212,6 +217,7 @@ def classify_arm_deviations(dg_groups, dg_stats, threshold=0.25, use_mean=False)
 
     return arm_deviation_summary
 
+
 def write_statistics_csv(dg_stats, output_path):
     """
     Write DG statistics to CSV.
@@ -232,6 +238,7 @@ def write_statistics_csv(dg_stats, output_path):
                 'right_median': stats['right_median']
             })
 
+
 def write_deviation_summary_csv(arm_summary, output_path):
     """
     Write DG arm deviation summary to CSV.
@@ -250,25 +257,115 @@ def write_deviation_summary_csv(arm_summary, output_path):
             row.update({k: summary[k] for k in fieldnames if k in summary})
             writer.writerow(row)
 
+
+def split_dgs(bam_file, dg_groups, dg_stats, threshold=0.25, use_mean=False):
+    """
+    Splits input BAM reads into two output files: one with abnormal arm lengths (DGs with high/low deviations),
+    and one with normal arm lengths (all within threshold).
+    """
+    arm_deviations = classify_arm_deviations(
+        dg_groups, dg_stats, threshold=threshold, use_mean=use_mean
+    )
+
+    abnormal_dgs = set()
+    normal_dgs = set()
+
+    for dg_name, summary in arm_deviations.items():
+        if (summary['left_high'] > 0 or summary['left_low'] > 0 or 
+            summary['right_high'] > 0 or summary['right_low'] > 0):
+            abnormal_dgs.add(dg_name)
+        else:
+            normal_dgs.add(dg_name)
+
+    # Open input BAM
+    bamfile = pysam.AlignmentFile(bam_file, "rb")
+
+    # Create output BAM files
+    base_name = os.path.splitext(os.path.basename(bam_file))[0]
+    abnormal_path = f"{base_name}_abnormal_dgs.bam"
+    normal_path = f"{base_name}_normal_dgs.bam"
+
+    out_abnormal = pysam.AlignmentFile(abnormal_path, "wb", template=bamfile)
+    out_normal = pysam.AlignmentFile(normal_path, "wb", template=bamfile)
+
+    abnormal_count = 0
+    normal_count = 0
+    skipped = 0
+
+    for read in bamfile:
+        try:
+            dg_tag = read.get_tag('DG')
+            dg_fields = [field.strip() for field in dg_tag.split(',')]
+            if len(dg_fields) != 3:
+                skipped += 1
+                continue
+            dg_name = f"{dg_fields[0]}_{dg_fields[1]}_{dg_fields[2]}"
+            if dg_name in abnormal_dgs:
+                out_abnormal.write(read)
+                abnormal_count += 1
+            elif dg_name in normal_dgs:
+                out_normal.write(read)
+                normal_count += 1
+            else:
+                skipped += 1  # DG not found in either list
+        except (KeyError, ValueError, AttributeError):
+            skipped += 1
+
+    # Cleanup
+    bamfile.close()
+    out_abnormal.close()
+    out_normal.close()
+
+    print(f"[+] Abnormal DG reads: {abnormal_count} → {abnormal_path}")
+    print(f"[+] Normal DG reads: {normal_count} → {normal_path}")
+    print(f"[i] Skipped reads (unclassified or malformed): {skipped}")
+
+
 def parse_arguments():
     """
     Set up command line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Process DGs to isolate XLRNA interactions.',
+        description='Process DGs to isolate nested XLRNA duplexes.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
-    subparsers= parser.add_subparsers(dest='command', help='Sub-commands')
+    subparsers= parser.add_subparsers(
+        dest='command', 
+        title='Available functions', 
+        required=True
+    )
 
-    process_DGs = subparsers.add_parser('process_input', 
-        help='Processes DG bam files generated after CRSSANT')
-    process_DGs.add_argument('-i', '--input', required=True, 
-        help='Input DG BAM file')
-    process_DGs.add_argument('--use-mean', action='store_true')
-    process_DGs.add_argument('-t', '--threshold', type=float, default=0.25)
-    process_DGs.add_argument('-s', '--stats', action='store_true')
+    # check_dgs subparser
+    check_parser = subparsers.add_parser('check_dgs', 
+        help='Processes DG bam files generated after CRSSANT to determine\
+            which DGs have nested reads.')
+
+    check_parser.add_argument('input', help='Input DG BAM file (required positional argument)')
+    check_parser.add_argument('-s', '--stats', 
+        action='store_true', 
+        help='Print statistics for the nested arms')
+    check_parser.add_argument('-t', '--threshold', 
+        type=float, 
+        default=0.25,
+        help="Threshold percentage for calculating DG outliers")
+    check_parser.add_argument('-m', '--use-mean', 
+        action='store_true',
+        help="Use mean-based nesting detection")
+
+    # split_dgs subparser
+    split_parser = subparsers.add_parser('split_dgs',
+        help='Splits DGs with abnormal arm lengths into separate BAM files.')
+    split_parser.add_argument('input', help='Input DG BAM file (required positional argument)')
+    split_parser.add_argument('-t', '--threshold', 
+        type=float, 
+        default=0.25,
+        help="Threshold percentage for calculating DG outliers")
+    split_parser.add_argument('-m', '--use-mean', 
+        action='store_true',
+        help="Use mean-based nesting detection")
 
     return parser.parse_args()
+
 ################################################################################
 
 
@@ -277,8 +374,8 @@ def parse_arguments():
 
 def main():
     args = parse_arguments()
-    try: nproc = subprocess.run(
-        "nproc", shell=True, check=True, text=True, capture_output=True)
+    try: 
+        nproc = subprocess.run("nproc", shell=True, check=True, text=True, capture_output=True)
         n_threads = int(nproc.stdout.strip())
 
     except subprocess.CalledProcessError:
@@ -288,9 +385,9 @@ def main():
                     f"Defaulting to 1 thread.")
             n_threads = 1
 
-    if args.command == 'process_input':
+    if args.command == 'check_dgs':
         # Extract both read data and statistics
-        dg_groups, dg_stats = extract_dgs(bam_file=args.input)
+        dg_groups, dg_stats = check_parser(bam_file=args.input)
         print("\n=== DG Statistics ===")
         for dg, metrics in dg_stats.items():
             print(f"DG={dg}: {metrics}")
@@ -314,6 +411,12 @@ def main():
 
             print(f"\n[+] DG statistics written to: {stats_csv}")
             print(f"[+] Arm deviation summary written to: {deviations_csv}")
+
+    elif args.command == "split_dgs":
+        # Extract both read data and statistics
+        dg_groups, dg_stats = extract_dgs(bam_file=args.input)
+        split_dgs(bam_file=args.input, dg_groups=dg_groups, dg_stats=dg_stats, 
+                  threshold=args.threshold, use_mean=args.use_mean)
 
 if __name__ == "__main__":
     main()
