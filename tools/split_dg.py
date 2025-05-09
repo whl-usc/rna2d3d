@@ -503,7 +503,7 @@ def main():
             cutoff=args.cutoff)
 
         print(f"\n=== Arm Deviation Summary ({int(args.threshold * 100)}% "
-            f"from {'median' if args.use_mean else 'mean'}) ===")
+            f"from {'mean' if args.use_mean else 'median'}) ===")
         for dg, summary in deviations.items(): print(f"DG={dg}: {summary}")
 
         if args.stats:
