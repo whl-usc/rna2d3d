@@ -16,14 +16,13 @@ duplexes by percentage overlap.
 Additionally, SHAPE reactivity profiles can be used to address length
 variability in complex structures. Peaks correspond to regions of RNA that are 
 less structured or involve transitions between secondary structure elements 
-(e.g., loops or bulges). We will use reactivity thresholds to differentiate
-between highly structured (low reactivity) and less structured (high 
-reactivity) regions. The idea is that regions with complex structures may
-show greater variability in reactivity compared to simple, stable duplexes.
-Therefore, there should be a distinct bimodal/trimodal distribution in the
-reactivity profile.
+(e.g., loops or bulges). Use reactivity thresholds to differentiate
+between highly structured and lesser structured regions. Regions with complex 
+structures may show greater variability in reactivity compared to simple, 
+stable duplexes. Therefore, there should be a distinct bimodal/trimodal
+distribution in the reactivity profile.
 
-In summary, if a duplex has a length outside the average range of the DG
+If a duplex arm has a length outside the average range of the DG
 (either too short or too long) and shows a bimodal or trimodal SHAPE reactivity
 distribution, we classify it as a complex or unique DG for deeper analysis.
 
@@ -31,27 +30,31 @@ LOGIC:
 
 1.  Identify candidate duplexes
 
-    - Sort and order duplexes for independent processing 
-    - Store duplex as tuple (start, end) to compare 
-    - Calculate length of each DG, then average length
+    - Sort reads by DG tag and separate each reach within for processing 
+    - Store duplex arm lengths into dictionary
+    - Calculate median and mean length of each DG arms
 
         AvgDG (Avg DG = sigma n, i=1 endi - starti) / n n = number of DGs, start
         and end are the positions of each DG
 
-        Threshold distance (+/- 10% of the AvgDG to determine which DGs deviate)
+    - Classify based on length (if within threshold, considered normal) 
 
-        Threshold Lower = Avg - Avg * 0.1 Threshold Upper = Avg + Avg * 0.1
+        Default setting is median, since it provides higher resistance to 
+        outliers. Sparse abnormally long or short reads won't skew median. 
+        Better for skewed or non-normal distributions (as in the case of DGs)
 
-    - Classify based on length (if within threshold, considered normal) -
-      Outside (shorter or longer) may be nested or unique 
+    - Outside (either arm shorter or longer) may be nested or unique 
+
+        Threshold distance (+/-% of the AvgDG to determine which DGs deviate)
 
     - For every overlap that occurs, assess the nature of the overlap. 
         
         If outlier duplex is entirely contained within another, consider it
-        nested. If outlier duplex doesn’t overlap or only partially
-        overlaps, it might be a distinct feature (e.g., a unique secondary
-        structure or noncanonical duplex). If overlaps are detected, treat
-        the outliers as unique and attempt to “split” the overlapping DGs.
+        nested. If outlier duplex doesn’t overlap or only partially overlaps,
+        it might be a distinct feature (e.g., a unique secondary structure or 
+        noncanonical duplex). If overlaps are detected, treat the outliers as 
+        unique and attempt to “split” the overlapping DGs.
+
         Ådjust boundaries of the duplexes: 
 
         If a duplex is considered a nested outlier, adjust its boundary by
@@ -80,24 +83,23 @@ __version__ = "2.2.0"
 
 # Version notes
 __update_notes__ = """
+2.3.0
+    -   Added optional setting for cutoffs (-c, --cutoff) defaults 5
+    -   Added flag for rewriting DGs in-place (-r, --rewrite-tags)
 2.2.0
     -   Fixed logic for the splitting, working on a per-read basis
-
+    -   Added flag for using mean (-m, --use-mean) defaults to median
 2.1.0
     -   Forced sorting and indexing of split_dg files
-
 2.0.0
-    -   Added new function to split DGs into separate files (-S, --split)
+    -   Added new function to split DGs into separate files
         split_dgs
-
 1.2.0
     -   Implemented functions to write out statistics (-s, --stats)
         write_statistics_csv
         write_deviation_summary_csv
-
 1.1.0
     -   Added threshold setting for classify_arm_deviations(-t, --threshold)
-
 1.0.0
     -   Initial commit for function logic.
     -   extract_dgs reads bam file, returns statistics on DGs.
@@ -123,7 +125,7 @@ from statistics import mean, median
 
 ################################################################################
 # Define sub-functions
-def extract_dgs(bam_file):
+def extract_dgs(bam_file, cutoff=5):
     """
     Extract left and right arm lengths of split reads from CIGAR string,
     grouped by the integer at the end of the 'DG' tag.
@@ -138,15 +140,14 @@ def extract_dgs(bam_file):
             # Parse DG tag
             dg_tag = read.get_tag('DG')
             dg_fields = [field.strip() for field in dg_tag.split(',')]
-            if len(dg_fields) != 3: continue
-
+            if len(dg_fields) != 3: 
+                continue
             dg_name = f"{dg_fields[0]}_{dg_fields[1]}_{dg_fields[2]}"
 
             # Parse CIGAR
             cigar = read.cigartuples
-            if cigar is None: continue
-
-            # Identify arms based on the first N
+            if cigar is None: 
+                continue
             left_len, right_len = 0, 0
             found_N = False
 
@@ -174,14 +175,14 @@ def extract_dgs(bam_file):
             'right_median': median(vals['right']),
         }
         for dg, vals in dg_groups.items()
-        if len(vals['left']) > 0 and len(vals['right']) > 0
+        if len(vals['left']) > int(cutoff) and len(vals['right']) > int(cutoff)
     }
 
     return dg_groups, dg_stats
 
 
 def classify_arm_deviations(dg_groups, dg_stats, 
-    threshold=0.25, use_mean=False):
+    threshold=0.25, use_mean=False, cutoff=5):
     """
     Classify each DG read arm as high/low/normal relative to its group's mean/
     median. Returns: dict with detailed arm deviation counts.
@@ -191,9 +192,11 @@ def classify_arm_deviations(dg_groups, dg_stats,
     for dg_name, arms in dg_groups.items():
         left_lengths = arms['left']
         right_lengths = arms['right']
-        total_reads = len(left_lengths)
+        total_reads = len(arms['left'])
 
-        if total_reads == 0: continue
+        # Skip DGs with insufficient read support
+        if total_reads <= int(cutoff) or dg_name not in dg_stats:
+            continue
 
         # Reference values
         left_ref = (dg_stats[dg_name]['left_mean'] if use_mean else 
@@ -304,18 +307,23 @@ def sort_and_index_bam(in_path, out_path):
     return out_path
 
 
-def split_dgs(bam_file, threshold, use_mean=False):
+def split_dgs(bam_file, threshold, use_mean=False, rewrite_tags=False, 
+    cutoff=5):
     base_name = os.path.splitext(os.path.basename(bam_file))[0]
 
     bam = pysam.AlignmentFile(bam_file, 'rb')
-    outs = {
-        'normal': pysam.AlignmentFile(f'{base_name}.normal.unsorted.bam', 'wb',
-            template=bam),
-        'SL': pysam.AlignmentFile(f'{base_name}.SL.unsorted.bam', 'wb', 
-            template=bam),
-        'LS': pysam.AlignmentFile(f'{base_name}.LS.unsorted.bam', 'wb',
-            template=bam),
-    }
+    if rewrite_tags:
+        output_bam = pysam.AlignmentFile(f"{base_name}.rewritten.unsorted.bam",
+             'wb', template=bam)
+    else:
+        outs = {
+            'normal': pysam.AlignmentFile(f'{base_name}.normal.unsorted.bam', 
+                'wb', template=bam),
+            'SL': pysam.AlignmentFile(f'{base_name}.SL.unsorted.bam', 'wb', 
+                template=bam),
+            'LS': pysam.AlignmentFile(f'{base_name}.LS.unsorted.bam', 'wb',
+                template=bam),
+        }
 
     dg_reads = defaultdict(list)
     dg_arm_lengths = defaultdict(lambda: {'left': [], 'right': []})
@@ -342,7 +350,6 @@ def split_dgs(bam_file, threshold, use_mean=False):
         dg_arm_lengths[dg_name]['left'].append(left_len)
         dg_arm_lengths[dg_name]['right'].append(right_len)
 
-    # Compute median or mean for each arm
     stat_func = mean if use_mean else median
     dg_stats = {
         dg: {
@@ -356,24 +363,45 @@ def split_dgs(bam_file, threshold, use_mean=False):
 
     # Classify and write reads
     for dg, read_list in dg_reads.items():
+        if len(read_list) < int(cutoff):
+            for read, _, _ in read_list:
+                counts['normal'] += 1
+                if rewrite_tags:
+                    output_bam.write(read)
+                else:
+                    outs['normal'].write(read)
+            continue
+
         ref_l = dg_stats[dg]['left_median']
         ref_r = dg_stats[dg]['right_median']
 
         for read, l, r in read_list:
             dev_type = get_read_deviation_type(l, r, ref_l, ref_r, threshold)
             counts[dev_type] += 1
-            outs[dev_type].write(read)
+            if rewrite_tags:
+                if dev_type in ('SL', 'LS'):
+                    old_tag = read.get_tag('DG')
+                    new_tag = f"{old_tag}-{dev_type}"
+                    read.set_tag('DG', new_tag, value_type='Z')
+                output_bam.write(read)
+            else:
+                outs[dev_type].write(read)
 
     bam.close()
-    for out in outs.values():
-        out.close()
 
-    # Sort and index output BAMs
-    for dev_type in ['normal', 'SL', 'LS']:
-        unsorted = f"{base_name}.{dev_type}.unsorted.bam"
-        final = f"{base_name}.{dev_type}.bam"
-        sort_and_index_bam(unsorted, final)
-        print(f"[{dev_type}]  -> {final}")
+    if rewrite_tags:
+        output_bam.close()
+        sort_and_index_bam(f"{base_name}.rewritten.unsorted.bam", 
+            f"{base_name}.rewritten.bam")
+        print(f"[All reads] -> {base_name}.rewritten.bam")
+    else:
+        for out in outs.values():
+            out.close()
+        for dev_type in ['normal', 'SL', 'LS']:
+            unsorted = f"{base_name}.{dev_type}.unsorted.bam"
+            final = f"{base_name}.{dev_type}.bam"
+            sort_and_index_bam(unsorted, final)
+            print(f"[{dev_type}] -> {final}")
 
     # Summary
     print(f"\nSummary for {base_name}:")
@@ -398,33 +426,44 @@ def parse_arguments():
     # check_dgs subparser
     check_parser = subparsers.add_parser('check_dgs', 
         help='Processes DG bam files generated after CRSSANT to determine\
-            which DGs have nested reads.')
+            which DGs have nested reads')
 
     check_parser.add_argument('input', 
         help='Input DG BAM file (required positional argument)')
-    check_parser.add_argument('-s', '--stats', 
-        action='store_true', 
-        help='Print statistics for the nested arms')
+    check_parser.add_argument('-c', '--cutoff', 
+        type=int, 
+        default=5,
+        help="Cutoff number, minimum DG counts before analysis")
+    check_parser.add_argument('-m', '--use-mean', 
+        action='store_true',
+        help="Use mean-based nesting detection")
     check_parser.add_argument('-t', '--threshold', 
         type=float, 
         default=0.25,
         help="Threshold percentage for calculating DG outliers")
-    check_parser.add_argument('-m', '--use-mean', 
-        action='store_true',
-        help="Use mean-based nesting detection")
+    check_parser.add_argument('-s', '--stats', 
+        action='store_true', 
+        help='Write statistics for the nested arms to CSV files')
 
     # split_dgs subparser
     split_parser = subparsers.add_parser('split_dgs',
-        help='Splits DGs with abnormal arm lengths into separate BAM files.')
+        help='Splits DGs with abnormal arm lengths into separate BAM files')
     split_parser.add_argument('input', 
         help='Input DG BAM file (required positional argument)')
+    split_parser.add_argument('-c', '--cutoff', 
+        type=int, 
+        default=5,
+        help="Cutoff number, minimum DG counts before analysis")
+    split_parser.add_argument('-m', '--use-mean', 
+        action='store_true',
+        help="Use mean-based nesting detection")
     split_parser.add_argument('-t', '--threshold', 
         type=float, 
         default=0.25,
         help="Threshold percentage for calculating DG outliers")
-    split_parser.add_argument('-m', '--use-mean', 
+    split_parser.add_argument('-r', '--rewrite-tags', 
         action='store_true',
-        help="Use mean-based nesting detection")
+        help="Updates DG tags of reads with deviating arm lengths in place")
 
     return parser.parse_args()
 
@@ -450,14 +489,18 @@ def main():
 
     if args.command == 'check_dgs':
         # Extract both read data and statistics
-        dg_groups, dg_stats = extract_dgs(bam_file=args.input)
+        dg_groups, dg_stats = extract_dgs(
+            bam_file=args.input, 
+            cutoff=args.cutoff)
         print("\n=== DG Statistics ===")
         for dg, metrics in dg_stats.items():
             print(f"DG={dg}: {metrics}")
 
         # Run deviation classifier
         deviations = classify_arm_deviations(dg_groups, dg_stats, 
-            threshold=args.threshold, use_mean=args.use_mean)
+            threshold=args.threshold, 
+            use_mean=args.use_mean, 
+            cutoff=args.cutoff)
 
         print(f"\n=== Arm Deviation Summary ({int(args.threshold * 100)}% "
             f"from {'median' if args.use_mean else 'mean'}) ===")
@@ -477,8 +520,11 @@ def main():
 
     elif args.command == "split_dgs":
         # Extract both read data and statistics
-        split_dgs(bam_file=args.input, threshold=args.threshold, 
-            use_mean=args.use_mean)
+        split_dgs(bam_file=args.input, 
+            threshold=args.threshold, 
+            use_mean=args.use_mean, 
+            rewrite_tags=args.rewrite_tags, 
+            cutoff=args.cutoff)
 
 if __name__ == "__main__":
     main()
