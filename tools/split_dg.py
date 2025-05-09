@@ -76,12 +76,15 @@ TO DO:
 
 ################################################################################
 # Define version
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 # Version notes
 __update_notes__ = """
+2.2.0
+    -   Fixed logic for the splitting, working on a per-read basis
+
 2.1.0
-    -   Sorting and indexing of the split_dg files
+    -   Forced sorting and indexing of split_dg files
 
 2.0.0
     -   Added new function to split DGs into separate files (-S, --split)
@@ -110,6 +113,7 @@ import csv
 import math 
 import os 
 import pysam
+import shutil
 import subprocess 
 import sys
 from collections import defaultdict
@@ -123,7 +127,8 @@ def extract_dgs(bam_file):
     """
     Extract left and right arm lengths of split reads from CIGAR string,
     grouped by the integer at the end of the 'DG' tag.
-    Returns: dict {DG: {'count': int, 'left_mean': float, 'left_median': float, 'right_mean': float, 'right_median': float}}
+    Returns: dict {DG: {'count': int, 'left_mean': float, 'left_median': float, 
+    'right_mean': float, 'right_median': float}}
     """
     bamfile = pysam.AlignmentFile(bam_file, "rb")
     dg_groups = defaultdict(lambda: {'left': [], 'right': []})
@@ -175,10 +180,11 @@ def extract_dgs(bam_file):
     return dg_groups, dg_stats
 
 
-def classify_arm_deviations(dg_groups, dg_stats, threshold=0.25, use_mean=False):
+def classify_arm_deviations(dg_groups, dg_stats, 
+    threshold=0.25, use_mean=False):
     """
-    Classify each DG read arm as high/low/normal relative to its group's mean/median.
-    Returns: dict with detailed arm deviation counts.
+    Classify each DG read arm as high/low/normal relative to its group's mean/
+    median. Returns: dict with detailed arm deviation counts.
     """
     arm_deviation_summary = {}
 
@@ -190,8 +196,10 @@ def classify_arm_deviations(dg_groups, dg_stats, threshold=0.25, use_mean=False)
         if total_reads == 0: continue
 
         # Reference values
-        left_ref = dg_stats[dg_name]['left_mean'] if use_mean else dg_stats[dg_name]['left_median']
-        right_ref = dg_stats[dg_name]['right_mean'] if use_mean else dg_stats[dg_name]['right_median']
+        left_ref = (dg_stats[dg_name]['left_mean'] if use_mean else 
+            dg_stats[dg_name]['left_median'])
+        right_ref = (dg_stats[dg_name]['right_mean'] if use_mean else 
+            dg_stats[dg_name]['right_median'])
 
         summary = {
             'total': total_reads,
@@ -260,65 +268,142 @@ def write_deviation_summary_csv(arm_summary, output_path):
 
 def split_dgs(bam_file, dg_groups, dg_stats, threshold=0.25, use_mean=False):
     """
-    Splits input BAM reads into two output files: one with abnormal arm lengths (DGs with high/low deviations),
-    and one with normal arm lengths (all within threshold).
+    Splits input BAM reads into three output files:
+    - normal (short-short or long-long),
+    - abnormal_1 (short-long),
+    - abnormal_2 (long-short).
     """
     arm_deviations = classify_arm_deviations(
-        dg_groups, dg_stats, threshold=threshold, use_mean=use_mean
-    )
+        dg_groups, dg_stats, threshold=threshold, use_mean=use_mean)
 
-    abnormal_dgs = set()
     normal_dgs = set()
+    abnormal_1_dgs = set()  # left short, right long
+    abnormal_2_dgs = set()  # left long, right short
+
+    def get_deviation_type(summary):
+        left_counts = {
+            'short': summary['left_low'],
+            'long': summary['left_high'],
+            'normal': summary['left_normal']
+        }
+        right_counts = {
+            'short': summary['right_low'],
+            'long': summary['right_high'],
+            'normal': summary['right_normal']
+        }
+
+        # Get the most frequent type on each arm
+        left = max(left_counts, key=left_counts.get)
+        right = max(right_counts, key=right_counts.get)
+        
+        if left == 'short' and right == 'long':
+            return 'abnormal_1'
+        elif left == 'long' and right == 'short':
+            return 'abnormal_2'
+        else:
+            return 'normal'  # mixed or ambiguous
 
     for dg_name, summary in arm_deviations.items():
-        if (summary['left_high'] > 0 or summary['left_low'] > 0 or 
-            summary['right_high'] > 0 or summary['right_low'] > 0):
-            abnormal_dgs.add(dg_name)
-        else:
+        category = get_deviation_type(summary)
+        if category == 'normal':
             normal_dgs.add(dg_name)
+        elif category == 'abnormal_1':
+            abnormal_1_dgs.add(dg_name)
+        elif category == 'abnormal_2':
+            abnormal_2_dgs.add(dg_name)
 
-    # Open input BAM
     bamfile = pysam.AlignmentFile(bam_file, "rb")
-
-    # Create output BAM files
     base_name = os.path.splitext(os.path.basename(bam_file))[0]
-    abnormal_path = f"{base_name}_abnormal_dgs.bam"
-    normal_path = f"{base_name}_normal_dgs.bam"
 
-    out_abnormal = pysam.AlignmentFile(abnormal_path, "wb", template=bamfile)
-    out_normal = pysam.AlignmentFile(normal_path, "wb", template=bamfile)
+    out_paths = {
+        'normal': f"{base_name}_normal.unsorted.bam",
+        'abnormal_1': f"{base_name}_SL.unsorted.bam",
+        'abnormal_2': f"{base_name}_LS.unsorted.bam"
+    }
 
-    abnormal_count = 0
-    normal_count = 0
+    outs = {
+        k: pysam.AlignmentFile(path, "wb", template=bamfile)
+        for k, path in out_paths.items()
+    }
+
+    counters = {k: 0 for k in out_paths}
     skipped = 0
 
     for read in bamfile:
         try:
             dg_tag = read.get_tag('DG')
-            dg_fields = [field.strip() for field in dg_tag.split(',')]
-            if len(dg_fields) != 3:
+            fields = [x.strip() for x in dg_tag.split(',')]
+            if len(fields) != 3:
                 skipped += 1
                 continue
-            dg_name = f"{dg_fields[0]}_{dg_fields[1]}_{dg_fields[2]}"
-            if dg_name in abnormal_dgs:
-                out_abnormal.write(read)
-                abnormal_count += 1
-            elif dg_name in normal_dgs:
-                out_normal.write(read)
-                normal_count += 1
+            dg_name = f"{fields[0]}_{fields[1]}_{fields[2]}"
+            if dg_name not in dg_stats:
+                skipped += 1
+                continue
+
+            # Parse CIGAR to get left/right lengths
+            cigar = read.cigartuples
+            if cigar is None:
+                skipped += 1
+                continue
+
+            left_len, right_len = 0, 0
+            found_N = False
+            for op, length in cigar:
+                if op == 0:  # M
+                    if not found_N:
+                        left_len += length
+                    else:
+                        right_len += length
+                elif op == 3:  # N
+                    found_N = True
+
+            if not found_N or left_len == 0 or right_len == 0:
+                skipped += 1
+                continue
+
+            # Deviation classification using that DG's stats
+            left_ref = (dg_stats[dg_name]['left_mean'] if use_mean 
+                else dg_stats[dg_name]['left_median'])
+            right_ref = (dg_stats[dg_name]['right_mean'] if use_mean 
+                else dg_stats[dg_name]['right_median'])
+
+            l_ratio = (left_len - left_ref) / left_ref
+            r_ratio = (right_len - right_ref) / right_ref
+
+            l_dev = ('short' if l_ratio < -threshold 
+                else 'long' if l_ratio > threshold else 'normal')
+            r_dev = ('short' if r_ratio < -threshold 
+                else 'long' if r_ratio > threshold else 'normal')
+
+            # Route the read
+            if l_dev == r_dev and l_dev in {'short', 'long'}:
+                outs['normal'].write(read)
+                counters['normal'] += 1
+            elif l_dev == 'short' and r_dev == 'long':
+                outs['abnormal_1'].write(read)
+                counters['abnormal_1'] += 1
+            elif l_dev == 'long' and r_dev == 'short':
+                outs['abnormal_2'].write(read)
+                counters['abnormal_2'] += 1
             else:
-                skipped += 1  # DG not found in either list
-        except (KeyError, ValueError, AttributeError):
+                skipped += 1
+
+        except Exception:
             skipped += 1
 
-    # Cleanup
     bamfile.close()
-    out_abnormal.close()
-    out_normal.close()
+    for out in outs.values(): out.close()
 
-    print(f"[+] Abnormal DG reads: {abnormal_count} → {abnormal_path}")
-    print(f"[+] Normal DG reads: {normal_count} → {normal_path}")
-    print(f"[i] Skipped reads (unclassified or malformed): {skipped}")
+    for k, unsorted_path in out_paths.items():
+        sorted_path = unsorted_path.replace('.unsorted', '')
+        pysam.sort("-o", sorted_path, unsorted_path)
+        pysam.index(sorted_path)
+        os.remove(unsorted_path)
+        print(f"[+] {k.capitalize()} DG reads: {counters[k]} -> {sorted_path}")
+
+    if skipped:
+        print(f"[i] Skipped reads (unclassified or malformed): {skipped}")
 
 
 def parse_arguments():
@@ -332,15 +417,15 @@ def parse_arguments():
     subparsers= parser.add_subparsers(
         dest='command', 
         title='Available functions', 
-        required=True
-    )
+        required=True)
 
     # check_dgs subparser
     check_parser = subparsers.add_parser('check_dgs', 
         help='Processes DG bam files generated after CRSSANT to determine\
             which DGs have nested reads.')
 
-    check_parser.add_argument('input', help='Input DG BAM file (required positional argument)')
+    check_parser.add_argument('input', 
+        help='Input DG BAM file (required positional argument)')
     check_parser.add_argument('-s', '--stats', 
         action='store_true', 
         help='Print statistics for the nested arms')
@@ -355,7 +440,8 @@ def parse_arguments():
     # split_dgs subparser
     split_parser = subparsers.add_parser('split_dgs',
         help='Splits DGs with abnormal arm lengths into separate BAM files.')
-    split_parser.add_argument('input', help='Input DG BAM file (required positional argument)')
+    split_parser.add_argument('input', 
+        help='Input DG BAM file (required positional argument)')
     split_parser.add_argument('-t', '--threshold', 
         type=float, 
         default=0.25,
@@ -375,7 +461,8 @@ def parse_arguments():
 def main():
     args = parse_arguments()
     try: 
-        nproc = subprocess.run("nproc", shell=True, check=True, text=True, capture_output=True)
+        nproc = subprocess.run("nproc", 
+            shell=True, check=True, text=True, capture_output=True)
         n_threads = int(nproc.stdout.strip())
 
     except subprocess.CalledProcessError:
@@ -387,7 +474,7 @@ def main():
 
     if args.command == 'check_dgs':
         # Extract both read data and statistics
-        dg_groups, dg_stats = check_parser(bam_file=args.input)
+        dg_groups, dg_stats = extract_dgs(bam_file=args.input)
         print("\n=== DG Statistics ===")
         for dg, metrics in dg_stats.items():
             print(f"DG={dg}: {metrics}")
