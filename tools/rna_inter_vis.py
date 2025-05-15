@@ -185,30 +185,32 @@ def collapse_pritrans(input_pritrans, output_pritrans, new_chrom, r1_start, r1_e
                 
                 out_f.write('\t'.join(fields) + '\n')
 
-def prepare_crssant(input_sam, output_bam, remove_intermediate=True):
+def prepare_crssant(input_sam, remove_intermediate=True):
     """
-    Convert SAM to sorted BAM and index for CRSSANT.
-    
+    Convert SAM to sorted BAM and index for CRSSANT using pysam.
+
     Args:
         input_sam: Path to input SAM file
-        output_bam: Path to output sorted BAM file (without .bam extension)
-        remove_intermediate: Whether to remove intermediate files
+        remove_intermediate: Whether to remove intermediate files (e.g. unsorted BAM, SAM)
     """
-    # Convert SAM to BAM
-    unsorted_bam = f"{output_bam}.unsorted.bam"
-    with pysam.AlignmentFile(input_sam, 'r') as in_sam:
-        with pysam.AlignmentFile(unsorted_bam, 'wb', header=in_sam.header) as out_bam:
+    # Derive output paths from input prefix
+    input_prefix = os.path.splitext(input_sam)[0]
+    unsorted_bam = f"{input_prefix}_unsorted.bam"
+    sorted_bam = f"{input_prefix}_sorted.bam"
+
+    # Convert SAM to BAM (unsorted)
+    with pysam.AlignmentFile(input_sam, "r") as in_sam:
+        with pysam.AlignmentFile(unsorted_bam, "wb", header=in_sam.header) as out_bam:
             for read in in_sam:
                 out_bam.write(read)
-    
+
     # Sort BAM
-    sorted_bam = f"{output_bam}.bam"
-    pysam.sort('-o', sorted_bam, unsorted_bam)
-    
+    pysam.sort("-o", sorted_bam, unsorted_bam)
+
     # Index BAM
     pysam.index(sorted_bam)
-    
-    # Clean up
+
+    # Remove intermediate files
     if remove_intermediate:
         os.remove(unsorted_bam)
         os.remove(input_sam)
@@ -225,18 +227,18 @@ def parse_arguments():
     
     # Mini-genome generation command
     mini_parser = subparsers.add_parser('mini_genome', help='Generate mini genome')
-    mini_parser.add_argument('-i', '--input_fasta', required=True, help='Input genome FASTA')
+    mini_parser.add_argument('-i', '--input', required=True, help='Input genome FASTA')
     mini_parser.add_argument('-r1', '--region1', required=True, help='First region (chr:start-end)')
     mini_parser.add_argument('-r2', '--region2', required=True, help='Second region (chr:start-end)')
-    mini_parser.add_argument('-o', '--output_fasta', required=True, help='Output combined FASTA')
+    mini_parser.add_argument('-o', '--output', required=True, help='Output combined FASTA')
     mini_parser.add_argument('-g', '--genome_dir', required=True, help='STAR genome directory')
     mini_parser.add_argument('-t', '--threads', type=int, default=4, help='Number of threads')
     mini_parser.add_argument('--star_path', default='STAR', help='Path to STAR executable')
     
     # Pritrans collapsing command
     collapse_parser = subparsers.add_parser('collapse', help='Collapse pritrans reads')
-    collapse_parser.add_argument('-i', '--input_pritrans', required=True, help='Input pritrans file')
-    collapse_parser.add_argument('-o', '--output_pritrans', required=True, help='Output collapsed file')
+    collapse_parser.add_argument('-i', '--input', required=True, help='Input pritrans file')
+    collapse_parser.add_argument('-o', '--output', required=True, help='Output collapsed file')
     collapse_parser.add_argument('-c', '--new_chrom', required=True, help='New chromosome name')
     collapse_parser.add_argument('--r1_start', type=int, required=True, help='Region 1 start in mini genome')
     collapse_parser.add_argument('--r1_end', type=int, required=True, help='Region 1 end in mini genome')
@@ -245,10 +247,10 @@ def parse_arguments():
     
     # CRSSANT preparation command
     crssant_parser = subparsers.add_parser('crssant', help='Prepare files for CRSSANT')
-    crssant_parser.add_argument('-i', '--input_sam', required=True, help='Input SAM file')
-    crssant_parser.add_argument('-o', '--output_bam', required=True, help='Output BAM base name')
+    crssant_parser.add_argument('-i', '--input', required=True, help='Input SAM file')
+    crssant_parser.add_argument('-o', '--output', required=True, help='Output BAM base name')
     crssant_parser.add_argument('--keep_intermediate', action='store_true', 
-                              help='Keep intermediate files')
+                              help='Keep intermediate files unsorted BAM files')
     
     return parser.parse_args()
 
@@ -258,7 +260,7 @@ def parse_arguments():
 def main():
     args = parse_arguments()
     
-   try:
+    try:
         nproc = subprocess.run("nproc", shell=True, check=True, 
             text=True, capture_output=True)
         n_threads = int(nproc.stdout.strip())
@@ -289,11 +291,12 @@ def main():
         
     elif args.command == 'crssant':
         prepare_crssant(
-            args.input_sam, args.output_bam, 
-            not args.keep_intermediate
+            input_sam=args.input_sam,
+            output_bam=args.output_bam,
+            remove_intermediate=not args.keep_intermediate
         )
         print(f"CRSSANT files prepared: {args.output_bam}.bam and index")
-        
+
     else:
         print("Please specify a valid command. Use -h for help.")
 
