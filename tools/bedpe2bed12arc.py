@@ -4,7 +4,7 @@
 Contact:    wlee9829@gmail.com
 Date:       2025_02_19
 Python:     python3.10
-Script:     bedpetoarc.py
+Script:     bedpe2bed12arc.py
 
 Update to the original bedpetobed12.py script, fixes error in conversion.
 Converts bedpe records from CRSSANT to bed12 format, where (chrom1 == chrom2) 
@@ -17,10 +17,13 @@ itemRgb blockCount blockSizes blockStarts
 
 ################################################################################
 # Define version
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 # Version notes
 __update_notes__ = """
+2.1.0
+    -   Adjust color scaling for arcs.
+
 2.0.0
     -   Switched to sys.argv method for input files.
     -   Implemented color_arcs() to adjust RGB based on DG scores.
@@ -85,14 +88,13 @@ def bedpe_to_bed12(bedpe_path, add_color=True):
     return bed12_records
 
 
-def color_arcs(bed12_records, max_intensity=200):
+def color_arcs(bed12_records):
     """
     Assigns RGB colors to BED12 records based on DG score, sorting only within
     records that share the same base name (split from column 4).
 
     Args:
         bed12_records (list): List of BED12 records.
-        max_intensity (int): Max RGB intensity (0-255) for highest DG score.
 
     Returns:
         list: BED12 records with updated RGB values.
@@ -121,20 +123,30 @@ def color_arcs(bed12_records, max_intensity=200):
     ]
 
     updated_records = []
-    gamma = 1.5
+    gamma = 0.5
 
     for idx, (base_name, group) in enumerate(grouped_records.items()):
         base_color = color_list[idx % len(color_list)]
         scores = [float(rec[4]) for rec in group]
         max_log_score = math.log1p(max(scores)) if scores else 1
 
+        def blend_with_white(color, scale):
+            return tuple(int(scale * c + (1 - scale) * 255) for c in color)
+
         for rec in group:
             raw_score = float(rec[4])
             log_score = math.log1p(raw_score)
-            intensity_scale = (1 - (log_score / max_log_score) ** gamma)
-            adj_color = tuple(int(c * intensity_scale) for c in base_color)
+            intensity_scale = ((log_score / max_log_score) ** gamma)
+            adj_color = blend_with_white(base_color, intensity_scale)
+
             rec[8] = f"{adj_color[0]},{adj_color[1]},{adj_color[2]}"
             updated_records.append(rec)
+
+            # Debug
+            print(rec)
+            print("Score:",raw_score)
+            print("Log_score:",log_score)
+            print("Adj_color:",adj_color)
 
     return updated_records
 
