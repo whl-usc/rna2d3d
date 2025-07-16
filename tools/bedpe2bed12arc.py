@@ -7,10 +7,10 @@ Python:     python3.10
 Script:     bedpe2bed12arc.py
 
 Update to the original bedpetobed12.py script, fixes error in conversion.
-Converts bedpe records from CRSSANT to bed12 format, where (chrom1 == chrom2) 
+Converts bedpe records from CRSSANT to bed12 format, where (chrom1 == chrom2)
 and (strand1 == strand2). Adds RGB coloring based on DG scores.
 
-bed12 (12 fields): 
+bed12 (12 fields):
 chrom chromStart chromEnd name score strand thickStart thickEnd
 itemRgb blockCount blockSizes blockStarts
 """
@@ -40,6 +40,7 @@ import os
 ################################################################################
 # Define sub-functions for processing
 
+
 def bedpe_to_bed12(bedpe_path, add_color=True):
     """
     Converts BEDPE file to BED12 format with optional coloring.
@@ -53,7 +54,7 @@ def bedpe_to_bed12(bedpe_path, add_color=True):
     """
     bed12_records = []
 
-    with open(bedpe_path, 'r') as bedpefile:
+    with open(bedpe_path, "r") as bedpefile:
         for line in bedpefile:
             record = line.strip().split()
             chrom = record[0]
@@ -64,15 +65,22 @@ def bedpe_to_bed12(bedpe_path, add_color=True):
             strand = record[9]
             itemRgb = "0,0,0"
 
-            blockSizes = str(
-                f"{chromEnd1 - chromStart1},{chromEnd2 - chromStart2}")
+            blockSizes = str(f"{chromEnd1 - chromStart1},{chromEnd2 - chromStart2}")
             blockStarts = str(f"0,{chromStart2 - chromStart1}")
 
             bed12_record = [
-                chrom, str(chromStart1), str(chromEnd2), 
-                name, score, strand,
-                str(chromStart1), str(chromStart1), 
-                itemRgb, "2", blockSizes, blockStarts
+                chrom,
+                str(chromStart1),
+                str(chromEnd2),
+                name,
+                score,
+                strand,
+                str(chromStart1),
+                str(chromStart1),
+                itemRgb,
+                "2",
+                blockSizes,
+                blockStarts,
             ]
 
             bed12_records.append(bed12_record)
@@ -82,8 +90,9 @@ def bedpe_to_bed12(bedpe_path, add_color=True):
         bed12_records = color_arcs(bed12_records)
 
     print(
-        f'Processed {len(bed12_records)} lines from '
-        f'file: {(bedpe_path).split(".bedpe")[0]}.\n')
+        f"Processed {len(bed12_records)} lines from "
+        f'file: {(bedpe_path).split(".bedpe")[0]}.\n'
+    )
 
     return bed12_records
 
@@ -105,21 +114,21 @@ def color_arcs(bed12_records):
 
     # Extract score from column 4 and group by base_name
     for rec in bed12_records:
-        name_parts = rec[3].split(',')
+        name_parts = rec[3].split(",")
         if len(name_parts) < 4:
             continue  # skip malformed entries
-        base_name = ','.join(name_parts[:2])
+        base_name = ",".join(name_parts[:2])
         dg_score = float(name_parts[-1])
-        rec[3] = ','.join(name_parts[:3])  # keep name + ID if needed
-        rec[4] = str(dg_score)             # overwrite BED12 score column
+        rec[3] = ",".join(name_parts[:3])  # keep name + ID if needed
+        rec[4] = str(dg_score)  # overwrite BED12 score column
         grouped_records[base_name].append(rec)
 
     # Define base colors to cycle through
     color_list = [
-        (0, 0, 255),     # Blue
-        (255, 0, 0),     # Red
-        (0, 128, 0),     # Green
-        (255, 0, 255)    # Purple
+        (0, 0, 255),  # Blue
+        (255, 0, 0),  # Red
+        (0, 128, 0),  # Green
+        (255, 0, 255),  # Purple
     ]
 
     updated_records = []
@@ -128,15 +137,15 @@ def color_arcs(bed12_records):
     for idx, (base_name, group) in enumerate(grouped_records.items()):
         base_color = color_list[idx % len(color_list)]
         scores = [float(rec[4]) for rec in group]
-        max_log_score = math.log1p(max(scores)) if scores else 1
+        max_log_score = math.log(max(scores)) if scores else 1
 
         def blend_with_white(color, scale):
             return tuple(int(scale * c + (1 - scale) * 255) for c in color)
 
         for rec in group:
             raw_score = float(rec[4])
-            log_score = math.log1p(raw_score)
-            intensity_scale = ((log_score / max_log_score) ** gamma)
+            log_score = math.log(raw_score)
+            intensity_scale = (log_score / max_log_score) ** gamma
             adj_color = blend_with_white(base_color, intensity_scale)
 
             rec[8] = f"{adj_color[0]},{adj_color[1]},{adj_color[2]}"
@@ -144,11 +153,12 @@ def color_arcs(bed12_records):
 
             # Debug
             print(rec)
-            print("Score:",raw_score)
-            print("Log_score:",log_score)
-            print("Adj_color:",adj_color)
+            print("Score:", raw_score)
+            print("Log_score:", log_score)
+            print("Adj_color:", adj_color)
 
     return updated_records
+
 
 def parse_args():
     """
@@ -164,11 +174,14 @@ def parse_args():
     parser.add_argument("bedpe", help="Input BEDPE file summarizing DGs.")
     parser.add_argument("bed12", help="Output BED12 file with arcs.")
     parser.add_argument(
-        "--no_color", action="store_false", dest="add_color",
-        help="Disable RGB coloring based on DG scores."
+        "--no_color",
+        action="store_false",
+        dest="add_color",
+        help="Disable RGB coloring based on DG scores.",
     )
 
     return parser.parse_args()
+
 
 def main():
     """
@@ -184,13 +197,13 @@ def main():
     # Write to BED12 file
     outfile = args.bed12 if args.bed12.endswith(".bed") else f"{args.bed12}.bed"
 
-    with open(outfile, 'w') as bed12file:
+    with open(outfile, "w") as bed12file:
         bed12file.write(
-            f'track name="{args.bed12}" graphType=arc '
-            f'itemRgb="On" height=100\n'
+            f'track name="{args.bed12}" graphType=arc ' f'itemRgb="On" height=100\n'
         )
         for rec in bed12_records:
             bed12file.write("\t".join(rec) + "\n")
+
 
 ################################################################################
 # Execute main
