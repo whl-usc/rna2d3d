@@ -40,7 +40,7 @@ genes = {}; genesdict = {}; cdsdict = {}; intronsdict = {}; fiveUtrdict = {}; th
 ########################## Process bam to bed file ###########################
 print(str(datetime.now())[:-7], "Process bam to bed file ...")
 outputbed = outputprefix+'.bed'
-os.system("/project/zhipengl_72/minjiez/software/bedtools2/bin/bedtools bamtobed -split -i %s > %s" % (inputbam, outputbed))
+os.system("bedtools bamtobed -split -i %s > %s" % (inputbam, outputbed))
 os.system("awk '{if($0!~/^chr/){print \"chr\"$0} else {print $0}}' %s > %s" % (outputbed, 'temp.bed'))
 os.system("sort -k1,1 -k2,2n -o %s %s" % (outputbed, 'temp.bed'))
 #totalreads = len(open(outputbed,'rU').readlines())
