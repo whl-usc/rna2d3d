@@ -81,7 +81,7 @@ annofile.close()
 ##########################   Get overlap  ###########################
 print(str(datetime.now())[:-7], "Get overlap between bed and anno file ...")
 outputoverlap = outputprefix+'_overlap.bed'
-os.system("/project/zhipengl_72/minjiez/software/bedtools2/bin/bedtools intersect -a %s -b %s -F 0.5 -wa -wb > %s" % (annobed, outputbed, outputoverlap))
+os.system("bedtools intersect -a %s -b %s -F 0.5 -wa -wb > %s" % (annobed, outputbed, outputoverlap))
 
 
 
