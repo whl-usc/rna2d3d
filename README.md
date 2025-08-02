@@ -173,10 +173,10 @@ rm -f x_2_nonchimeric_temp.sam x_2_chimeric_temp.sam x_2_nonchimeric_pri.bam x_2
 ## STEP 8 : Combine output from both rounds of STAR mapping
 
 ```
-python3 merger_sams.py x_1_prigap1.sam x_2_prigap1.sam gap1 x_prigap1.tmp
-python3 merger_sams.py x_1_prigapm.sam x_2_prigapm.sam gapm x_prigapm.tmp
-python3 merger_sams.py x_1_prihomo.sam x_2_prihomo.sam homo x_prihomo.tmp
-python3 merger_sams.py x_1_pritrans.sam x_2_pritrans.sam trans x_pritrans.tmp
+python3 merger_sams.py x_1_prigap1.sam x_2_prigap1.sam x gap1 x_prigap1.tmp
+python3 merger_sams.py x_1_prigapm.sam x_2_prigapm.sam x gapm x_prigapm.tmp
+python3 merger_sams.py x_1_prihomo.sam x_2_prihomo.sam x homo x_prihomo.tmp
+python3 merger_sams.py x_1_pritrans.sam x_2_pritrans.sam x trans x_pritrans.tmp
 
 samtools view -H x_1_Aligned.sortedByCoord.out.bam > header
 
