@@ -1,69 +1,133 @@
-'''
-contact:    wilsonhl@usc.edu
-date:       2022_09_14
-python:     python3.10
-script:     genes2bed.py
-    
-This script is used to generate a bed file for CRSSANT analysis.
-Contains the start, end of genes over a specific number of
-reads as determined by the CountCdsUtr_exclude.py script. 
-'''
+#!/usr/bin/env python3
+
+"""
+Contact:    wlee9829@gmail.com
+Date:       2025_08_01
+Python:     python3.10
+Script:     genes2bed.py
+"""
+################################################################################
+# Define version
+__version__ = "2.0.0"
+
+# Version notes
+__update_notes__ = """
+2.0.0
+    -   Complete code refactor to use argparse and function blocks.
+    -   Removed filter for protein_coding only genes.
+"""
+################################################################################
 
 # Import packages
-import sys, argparse, os, re, itertools, math, time
-import pandas as pd
 from datetime import datetime
+import argparse
+import os
+import pandas as pd
 
-# Usage instructions
-if len(sys.argv) < 5:
-    print("Usage:           python genes2bed.py *_ReadCount.txt CdsUtr.bed min_reads outname")
-    print("*_ReadCount.txt: Output from CountCdsUtr_exclude.py, shows read counts")
-    print("CdsUtr.bed:      Bed file of CDS, 5UTR, 3UTR regions and strand")
-    print("min_reads:       Minimum amount of reads before the gene is included")
-    print("outname:         Output file prefix")
-    sys.exit()
 
-in_file = open(sys.argv[1],'r')
-bed_file = open(sys.argv[2], 'r')
-min_reads = int(sys.argv[3])
-outname = str(sys.argv[4])
+def get_time():
+    return str(datetime.now())[:-7]
 
-if min_reads < 0:
-    print("Read count values must be >0")    
-    sys.exit()
 
-####################################################################################################
+def read_text(in_file, min_reads=1):
+    """
+    Read a tab-delimited file (e.g., ReadCount.txt) with a 'gene_Reads' column.
+    Filter genes with reads >= min_reads and return the gene list.
+    """
+    print(f"{get_time()}\tReading file: {in_file} with min_reads={min_reads}")
+    df = pd.read_csv(in_file, sep="\t")
 
-# Process the text file into a dataframe 
-df = pd.read_csv(in_file, sep="\t")
-df_minread = df.loc[((df['gene_Reads'] >= min_reads) & (df['Biotype'] =='protein_coding'))]
-genes_list = df_minread['Gene'].values.tolist(); num_reads=len(genes_list)
-print(str(datetime.now())[:-7] + " Searching *_ReadCount.txt based on min_reads: " + str(min_reads))
-# Print the list of genes to a text file for further analysis.
-# print(df_genes, file=open(outname+'.txt','a'))
+    # Check required columns
+    if "Gene" not in df.columns or "gene_Reads" not in df.columns:
+        raise ValueError("Input file must contain 'Gene' and 'gene_Reads' columns")
 
-# Open CdsUtr.bed file for parsing.
-print("                 Searching " + str(sys.argv[2]) + " for: " + str(num_reads) + " genes")
-bed = pd.read_csv(bed_file, sep="\t")
-bed.columns=["chromosome","start","stop","strand","gene","type","class"]
+    df_filtered = df[df["gene_Reads"] >= min_reads]
+    gene_list = df_filtered["Gene"].tolist()
 
-# Collapse rows for each gene and write to dictionary.
-print(str(datetime.now())[:-7] + " Compiling genes to bed file...")
-rows = []; pc=bed.reset_index()
-for m,n in enumerate(genes_list):
-    a = pc.loc[(pc['gene'] == n)]
-    chromosome = a.iloc[0,1]
-    start = str(a.iloc[0,2])
-    stop = str(a.iloc[-1,3])
-    gene = n
-    coverage = str(1000)
-    strand = a.iloc[0,4]
-    row = {'chromosome':chromosome, 'start':start, 'stop':stop, 'gene:':gene, 'coverage':coverage, 'strand':strand} 
-    #bed_out = bed_out.append(pd.DataFrame([rows]), ignore_index=True)
-    rows.append(row)
-    if (m+1) % 1000 == 0:
-        print("                   " + " Processed " + str(m+1) + " genes.")
+    print(f"{get_time()}\tFound {len(gene_list)} genes with >= {min_reads} reads")
 
-bed = pd.DataFrame(rows); outfile = outname+".bed"
-bed.to_csv(outfile, sep='\t',index=False, header=None)
-print(str(datetime.now())[:-7] + " Completed; see " + outfile)
+    return gene_list
+
+
+def read_anno(bed_file, genes_list, outprefix):
+    """
+    Reads a BED annotation file, filters rows for genes in genes_list,
+    and writes a new BED file with collapsed regions per gene.
+    """
+    print(f"{get_time()}\tLoading annotation BED: {bed_file}")
+
+    # Load BED file; if no header, specify column names explicitly
+    bed = pd.read_csv(
+        bed_file,
+        sep="\t",
+        header=None,
+        names=["chromosome", "start", "stop", "strand", "gene", "type", "class"],
+    )
+
+    print(f"{get_time()}\tFiltering annotations for {len(genes_list)} genes")
+
+    # Filter for genes in gene list
+    bed_filtered = bed[bed["gene"].isin(genes_list)]
+
+    # Collapse rows by gene to get min start and max stop per gene
+    collapsed_rows = []
+    for gene, group in bed_filtered.groupby("gene"):
+        chromosome = group["chromosome"].iloc[0]
+        strand = group["strand"].iloc[0]
+        start = group["start"].min()
+        stop = group["stop"].max()
+        collapsed_rows.append(
+            {
+                "chromosome": chromosome,
+                "start": start,
+                "stop": stop,
+                "gene": gene,
+                "strand": strand,
+            }
+        )
+
+    collapsed_df = pd.DataFrame(collapsed_rows)
+
+    out_file = f"{outprefix}.bed"
+
+    collapsed_df.to_csv(out_file, sep="\t", header=False, index=False)
+
+    print(
+        f"{get_time()}\tWrote collapsed BED with {len(collapsed_df)} genes to {out_file}"
+    )
+
+    return out_file
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="""This script generates a collapsed gene BED file from
+        a ReadCount.txt file output by CountCdsUtr.py and an annotation BED file. It filters genes by minimum reads."""
+    )
+
+    parser.add_argument("readcount", help="ReadCount.txt output from CountCdsUtr.py")
+    parser.add_argument("annotation", help="Annotation BED file with gene regions")
+    parser.add_argument(
+        "min_reads",
+        type=int,
+        help="Minimum reads for gene inclusion (default=1)",
+    )
+    parser.add_argument("outprefix", help="Output file prefix")
+
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    if "ReadCount.txt" not in args.readcount:
+        print(
+            "Warning: The readcount file does not seem to be from CountCdsUtr.py output"
+        )
+
+    genes = read_text(args.readcount, min_reads=args.min_reads)
+    collapsed_bed = read_anno(args.annotation, genes, args.outprefix)
+
+
+if __name__ == "__main__":
+    main()
