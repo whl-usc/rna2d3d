@@ -182,7 +182,7 @@ def plot_heatmap(
     df["end_pos"] = df["end_pos"].astype(int)
 
     # Create a pivot table (2D matrix of counts)
-    if scaled != None:
+    if scaled:
         # Treat each row contribution as 1x scale, sum across matching positions.
         heatmap_data = (
             df.groupby(["end_pos", "start_pos"])["scale"].sum().unstack(fill_value=0)
@@ -271,7 +271,7 @@ def parse_args():
         description=(
             "Plot tRF heatmaps from MINTbase CSV data.\n\n"
             "Example:\n"
-            "tRF_heatmap.py MINTbase.csv -a Gly -t 5half -r 1,72,15,87 -s"
+            "tRF_heatmap.py MINTbase.csv -a=Gly -t=5half -r=1,72,15,87 -s"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -292,7 +292,7 @@ def parse_args():
         "--range",
         type=str,
         help="Manual setting of the range as comma-separated values: "
-        "start_min,start_max,end_min,end_max (e.g., 0,100,0,100).",
+        "-r=start_min,start_max,end_min,end_max (e.g., -r=0,100,0,100).",
     )
     parser.add_argument(
         "-s",
@@ -316,7 +316,7 @@ def main():
     MINTbase_csv = args.input_file
     amino_acid = args.amino_acid
     plot_range = args.range
-    scaled = "scaled" if args.scaled else "none"
+    scaled = args.scaled
     type = args.type
 
     filtered_df = read_csv(MINTbase_csv, type, amino_acid)
