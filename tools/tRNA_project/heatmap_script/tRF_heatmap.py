@@ -15,6 +15,9 @@ __version__ = "2.0.0"
 
 # Version notes
 __update_notes__ = """
+2.1.0
+    -   Auto-filter to remove "MT" mitochondrial tRNAs.
+
 2.0.0
     -   Added -a, --amino-acid: filter by (Amino acid and anticodon).
     -   Added -r, --range: dynamic or manual range setting.
@@ -85,16 +88,20 @@ def read_csv(input_file, tRF_type="all", filter_aa=None):
             "#Type",
             "Fragment sequence",
             "Amino acid and anticodon",
+            "Chromosome",
             "Start position relative to start of mature tRNA",
             "End position relative to start of mature tRNA",
             "Expressed (# of datasets)?",
         ]
     ].copy()
 
+    filtered_df = filtered_df[filtered_df["Chromosome"] != "MT"]
+
     filtered_df.columns = [
         "class",
         "sequence",
         "amino_acid",
+        "chromosome",
         "start_pos",
         "end_pos",
         "scale",
