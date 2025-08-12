@@ -11,10 +11,13 @@ Construct heatmap of start/stop locations based on MINTbase information.
 
 ################################################################################
 # Define script version
-__version__ = "2.0.0"
+__version__ = "2.1.1"
 
 # Version notes
 __update_notes__ = """
+2.1.1
+    -   Changed condition without -r and -s to start from -1 instead of min.
+
 2.1.0
     -   Auto-filter to remove "MT" mitochondrial tRNAs.
 
@@ -39,6 +42,7 @@ import argparse
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 import re
 import seaborn as sns
 import sys
@@ -184,7 +188,6 @@ def plot_heatmap(
     df["scale"] = pd.to_numeric(df["scale"], errors="coerce")
 
     df = df.dropna(subset=["start_pos", "end_pos", "scale"])
-    # Convert to int
     df["start_pos"] = df["start_pos"].astype(int)
     df["end_pos"] = df["end_pos"].astype(int)
 
@@ -205,10 +208,15 @@ def plot_heatmap(
                 f"[ERROR] Invalid format for --range. Use: start_min,start_max,end_min,end_max"
             )
             sys.exit(1)
+
     else:
-        # Auto-detect the range
-        start_min, start_max = df["start_pos"].min(), df["start_pos"].max()
-        end_min, end_max = df["end_pos"].min(), df["end_pos"].max()
+        if not plot_range and scaled:
+            start_min, start_max = -1, df["start_pos"].max()
+            end_min, end_max = -1, df["end_pos"].max()
+        else:
+            # Auto-detect the range
+            start_min, start_max = df["start_pos"].min(), df["start_pos"].max()
+            end_min, end_max = df["end_pos"].min(), df["end_pos"].max()
 
     # Expand range slightly
     start_range = range(start_min, start_max + 1)
