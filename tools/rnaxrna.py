@@ -2,11 +2,15 @@
 
 """
 Contact:    wlee9829@gmail.com
-Date:       2025_07_08
+Date:       2025_08_21
 Python:     python3.10
 Script:     rnaxrna.py
 
-Fix pritrans reads not being able to be clustered using CRSSANT.
+Script re-processes pritrans gapped files to be mapped to a single mini-genome.
+1) Check for STAR and samtools/pysam, input files as FASTA/BAM
+2) Process input files for miniGenome generation
+3) Re-map BAM to mini-genome
+4) Show instructions for running crssant_birch...print med seglen
 """
 
 ################################################################################
@@ -15,13 +19,9 @@ __version__ = "2.0.0"
 
 # Version notes
 __update_notes__ = """
-2.0.0
-    -   Added instances for generating mini genome, processing pritrans files
-        and preparing the file for CRSSANT DG assembly.
-
 1.0.0
-    -   Set up new functions and logic.
-    -   Include function to check for STAR aligner to be installed.
+    -   Set up logic and workflow.
+    -   Set up a function to check for STAR aligner installation.
 """
 
 ################################################################################
@@ -36,9 +36,9 @@ import shutil
 import subprocess
 import sys
 
+
 ################################################################################
 # Define sub-functions for processing
-
 def check_star():
     """
     Checks if STAR aligner runs properly by calling --help.
@@ -50,153 +50,165 @@ def check_star():
     if shutil.which("STAR") is None:
         raise EnvironmentError("STAR not found in PATH")
 
-check_star()
 
-def mini_genome(input_bam, ref_fasta, genome_dir, n_threads):
+# check_star()
+
+
+def read_fasta(file, out_file=None):
     """
-    Extracts regions from input_bam and generates a mini-genome.
-    
-    Args:
-        input_bam: Path to the input bam file to be processed
-        ref_fasta: Path to the reference fasta to extract sequences from
-        genome_dir: Directory to store STAR index, defaults to current directory
-        n_threads: Number of threads for STAR 
+    Read a FASTA containing exactly two sequences and merge them into a
+    single  entry, separated by 50 Ns.
+
+    Inputs:
+        FASTA with two sequences (e.g. from NCBI Nucleotide:
+        https://www.ncbi.nlm.nih.gov/nuccore)
+
+    Example:
+        >Gene1
+        AAAAAA
+        >Gene2
+        CCCCCC
+
+    Becomes:
+        >Gene1_Gene2
+        AAAAAANNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNCCCCCC
     """
-    os.makedirs(genome_dir, exist_ok=True)
-
-    # Define start and end regions for the minigenome based on fastq
-    if input_bam.endswith(".sam"):
-        mode = "r"
-    elif input_bam.endswith(".bam"):
-        mode = "rb"
-    else:
-        raise ValueError("Unsupported file type: must be .sam or .bam")
-    
-    chroms, starts, ends = [], [], []
-
-    with pysam.AlignmentFile(input_bam, mode) as bam:
-        for read in bam:
-            if read.is_unmapped:
+    genes = {}
+    current_gene = None
+    seq_chunks = []
+    # Parse fasta into dict
+    with open(file, "rt") as fasta:
+        for line in fasta:
+            line = line.strip()
+            if not line:
                 continue
+            if line.startswith(">"):
+                if current_gene:
+                    genes[current_gene] = "".join(seq_chunks)
 
-            # Process records for the first RNA
-            chroms.append(read.reference_name)
-            starts.append(read.reference_start)
-            ends.append(read.reference_end)
+                header = line[1:].strip()
+                match = re.search(r"\(([^)]+)\)", header)
+                if match:
+                    current_gene = match.group(1)
+                else:
+                    current_gene = header.split()[0]
+                seq_chunks = []
+            else:
+                seq_chunks.append(line.strip().upper())
+        if current_gene:
+            genes[current_gene] = "".join(seq_chunks)
 
-            # Handle records for second RNA...SA tagged.
-            if read.has_tag("SA"):
-                sa_fields = read.get_tag("SA").split(",")
-                sa_pos = int(sa_fields[1]) - 1
-                chroms.append(sa_fields[0])
-                starts.append(int(sa_fields[1]))
-                cigar_ops = re.findall(r'(\d+)([MIDNSHP=X])', sa_fields[3])
-                end_len = sum(int(length) for length, op in cigar_ops if 
-                    op in ('M', 'D', '=', 'X'))
-                ends.append(sa_pos + end_len)
+    # Combine sequences with 50 Ns
+    gene_names = list(genes.keys())
+    if len(gene_names) != 2:
+        raise ValueError("Need exactly two sequences in FASTA.")
 
-    regions = {}
-    for chrom in set(chroms):
-        chrom_starts = [s for c, s in zip(chroms, starts) if c == chrom]
-        chrom_ends = [e for c, e in zip(chroms, ends) if c == chrom]
-        regions[chrom] = (min(chrom_starts), max(chrom_ends))
+    combined_name = "_".join(gene_names)
+    combined_seq = ("N" * 50).join(genes[name] for name in gene_names)
 
-    print(f"[INFO] Mini genome regions extracted from pritrans file...")
-    print(f"{regions}")
+    # Write output fasta
+    if out_file:
+        with open(out_file, "w") as out:
+            out.write(f">{combined_name}\n")
+            for i in range(0, len(combined_seq), 60):
+                out.write(combined_seq[i : i + 60] + "\n")
+        return out_file
+    else:
+        fasta_str = f">{combined_name}\n"
+        for i in range(0, len(combined_seq), 60):
+            fasta_str += combined_seq[i : i + 60] + "\n"
+        # print(fasta_str)
 
-    # Extract sequences from the reference fasta file
-    fasta = pysam.FastaFile(ref_fasta)
-    combined_seq = ""
+        return fasta_str
 
-    for chrom, (start, end) in sorted(regions.items()):
-        seq = fasta.fetch(chrom, start, end)
-        combined_seq += seq + "N" * 50
-    combined_seq = combined_seq.rstrip("N")
 
-    mini_genome_name = "mini_"+"_".join(k for k in regions.keys())
-    with open(f"{genome_dir}/{mini_genome_name}.fa", "w") as out:
-        out.write(f">{mini_genome_name}\n")
-        out.write(f"{combined_seq}\n")
+read_fasta("./gapdh_18s.fasta")
 
-    # Calculate total genome length to calculate for genomeSAindexNbases
-    genome_length = sum(end - start for start, end in regions.values())    
-    print(f"[INFO] Combined mini-genome length: {genome_length} bases.")
-    
-    log2 = math.log2(genome_length)
-    genomeSAindexNbases = int((log2 / 2) - 1)
-    genomeSAindexNbases = min(genomeSAindexNbases, 14)   
-    print(f"[INFO] genomeSAindexNbases: {genomeSAindexNbases}")
 
-    # Build STAR index
-    print(f"[INFO] Building STAR index at '{genome_dir}'...")    
-    try:
-        subprocess.run([
-            'STAR',
-            '--runThreadN', str(n_threads),
-            '--runMode', 'genomeGenerate',
-            '--genomeDir', genome_dir,
-            '--genomeFastaFiles', str(f"{genome_dir}/{mini_genome_name}.fa"),
-            '--genomeSAindexNbases', str(genomeSAindexNbases)
-        ], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] Failed to build STAR index: {e}")
-        sys.exit(1)
-        
-    print("[INFO] STAR genome index built.")
-    shutil.move("Log.out", genome_dir)
+def mini_genome(ref_fasta, genome_dir, n_threads=1):
+    """
+    This function takes a reference FASTA file and builds a STAR genome index.
 
-# mini_genome("SNORD133_tRNA_pri_crssant.sam", "hg38mask14add.fa", "./mini_genome", 6)
-    
-def bam_to_fastq(input_bam, output_fastq):
-    with pysam.AlignmentFile(input_bam, "rb") as bam, open(output_fastq, "w") as fq:
-        for read in bam:
-            if read.is_unmapped or not read.is_secondary:
-                fq.write(f"@{read.query_name}\n")
-                fq.write(f"{read.query_sequence}\n")
-                fq.write("+\n")
-                fq.write(f"{read.qual}\n")
+    Args:
+        ref_fasta (str): Reference FASTA used for genome generation function.
+        genome_dir (str): Path where mini-genome will be created.
+        n_threads (int): Number of threads used for STAR
 
-# bam_to_fastq("SNORD133_tRNA_pri_crssant.bam", "test.fastq")
+    """
 
-def run_star(genome_dir, n_threads=6):
-    fastq = "test.fastq"
-    outprefix = "test"
-    # Use new STAR
-    print(f"[INFO] Aligning reads using STAR")    
-    try:
-        subprocess.run([
-            'STAR',
-            '--runThreadN', str(n_threads),
-            '--runMode', 'alignReads',
-            '--genomeDir', genome_dir,
-            '--readFilesIn', fastq,
-            '--outFileNamePrefix', outprefix,
-            '--genomeLoad', 'NoSharedMemory',
-            '--outReadsUnmapped', 'Fastx',
-            '--outFilterMultimapNmax', '10',
-            '--outFilterScoreMinOverLread', '0',
-            '--outSAMattributes', 'All',
-            '--outSAMtype', 'BAM', 'Unsorted', 'SortedByCoordinate',
-            '--alignIntronMin', '1',
-            '--scoreGap', '0',
-            '--scoreGapNoncan', '0',
-            '--scoreGapGCAG', '0',
-            '--scoreGapATAC', '0',
-            '--scoreGenomicLengthLog2scale', '-1',
-            '--chimOutType', 'WithinBAM', 'HardClip',
-            '--chimSegmentMin', '5',
-            '--chimJunctionOverhangMin', '5',
-            '--chimScoreJunctionNonGTAG', '0',
-            '--chimScoreDropMax', '80',
-            '--chimNonchimScoreDropMin', '20'
-        ], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] Failed to align using STAR: {e}")
-        sys.exit(1)
-        
-    print("[INFO] STAR alignment completed.")
 
-run_star("./mini_genome", "6")
+mini_genome("SNORD133_tRNA_pri_crssant.sam", "hg38mask14add.fa", "./mini_genome", 6)
+
+
+# def run_star(genome_dir, n_threads=6):
+#     fastq = "test.fastq"
+#     outprefix = "test"
+#     # Use new STAR
+#     print(f"[INFO] Aligning reads using STAR")
+#     try:
+#         subprocess.run(
+#             [
+#                 "STAR",
+#                 "--runThreadN",
+#                 str(n_threads),
+#                 "--runMode",
+#                 "alignReads",
+#                 "--genomeDir",
+#                 genome_dir,
+#                 "--readFilesIn",
+#                 fastq,
+#                 "--outFileNamePrefix",
+#                 outprefix,
+#                 "--genomeLoad",
+#                 "NoSharedMemory",
+#                 "--outReadsUnmapped",
+#                 "Fastx",
+#                 "--outFilterMultimapNmax",
+#                 "10",
+#                 "--outFilterScoreMinOverLread",
+#                 "0",
+#                 "--outSAMattributes",
+#                 "All",
+#                 "--outSAMtype",
+#                 "BAM",
+#                 "Unsorted",
+#                 "SortedByCoordinate",
+#                 "--alignIntronMin",
+#                 "1",
+#                 "--scoreGap",
+#                 "0",
+#                 "--scoreGapNoncan",
+#                 "0",
+#                 "--scoreGapGCAG",
+#                 "0",
+#                 "--scoreGapATAC",
+#                 "0",
+#                 "--scoreGenomicLengthLog2scale",
+#                 "-1",
+#                 "--chimOutType",
+#                 "WithinBAM",
+#                 "HardClip",
+#                 "--chimSegmentMin",
+#                 "5",
+#                 "--chimJunctionOverhangMin",
+#                 "5",
+#                 "--chimScoreJunctionNonGTAG",
+#                 "0",
+#                 "--chimScoreDropMax",
+#                 "80",
+#                 "--chimNonchimScoreDropMin",
+#                 "20",
+#             ],
+#             check=True,
+#         )
+#     except subprocess.CalledProcessError as e:
+#         print(f"[ERROR] Failed to align using STAR: {e}")
+#         sys.exit(1)
+
+#     print("[INFO] STAR alignment completed.")
+
+
+# run_star("./mini_genome", "6")
 
 # def prepare_crssant(input_sam, remove_intermediate=True):
 #     """
@@ -235,9 +247,9 @@ run_star("./mini_genome", "6")
 #     parser = argparse.ArgumentParser(
 #         description='Process RNA-RNA interaction data for CRSSANT clustering.',
 #         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    
+
 #     subparsers = parser.add_subparsers(dest='command', help='Sub-commands')
-    
+
 #     # Mini-genome generation command
 #     mini_parser = subparsers.add_parser('mini_genome', help='Generate mini genome')
 #     mini_parser.add_argument('-i', '--input', required=True, help='Input genome FASTA')
@@ -247,7 +259,7 @@ run_star("./mini_genome", "6")
 #     mini_parser.add_argument('-g', '--genome_dir', required=True, help='STAR genome directory')
 #     mini_parser.add_argument('-t', '--threads', type=int, default=4, help='Number of threads')
 #     mini_parser.add_argument('--star_path', default='STAR', help='Path to STAR executable')
-    
+
 #     # Pritrans collapsing command
 #     collapse_parser = subparsers.add_parser('collapse', help='Collapse pritrans reads')
 #     collapse_parser.add_argument('-i', '--input', required=True, help='Input pritrans file')
@@ -257,14 +269,14 @@ run_star("./mini_genome", "6")
 #     collapse_parser.add_argument('--r1_end', type=int, required=True, help='Region 1 end in mini genome')
 #     collapse_parser.add_argument('--r2_start', type=int, required=True, help='Region 2 start in mini genome')
 #     collapse_parser.add_argument('--r2_end', type=int, required=True, help='Region 2 end in mini genome')
-    
+
 #     # CRSSANT preparation command
 #     crssant_parser = subparsers.add_parser('crssant', help='Prepare files for CRSSANT')
 #     crssant_parser.add_argument('-i', '--input', required=True, help='Input SAM file')
 #     crssant_parser.add_argument('-o', '--output', required=True, help='Output BAM base name')
-#     crssant_parser.add_argument('--keep_intermediate', action='store_true', 
+#     crssant_parser.add_argument('--keep_intermediate', action='store_true',
 #                               help='Keep intermediate files unsorted BAM files')
-    
+
 #     return parser.parse_args()
 
 # ################################################################################
@@ -272,9 +284,9 @@ run_star("./mini_genome", "6")
 
 # def main():
 #     args = parse_arguments()
-    
+
 #     try:
-#         nproc = subprocess.run("nproc", shell=True, check=True, 
+#         nproc = subprocess.run("nproc", shell=True, check=True,
 #             text=True, capture_output=True)
 #         n_threads = int(nproc.stdout.strip())
 #         print(f"Using {n_threads} CPUs for processing.")
@@ -292,21 +304,21 @@ run_star("./mini_genome", "6")
 
 #     if args.command == 'mini_genome':
 #         result = generate_mini_genome(
-#             args.input_fasta, args.region1, args.region2, 
+#             args.input_fasta, args.region1, args.region2,
 #             args.output_fasta, args.genome_dir, args.threads, args.star_path
 #         )
 #         print("Mini genome created successfully.")
 #         print(f"New chromosome: {result[0]}")
 #         print(f"Region 1 in mini genome: {result[1]}-{result[2]}")
 #         print(f"Region 2 in mini genome: {result[3]}-{result[4]}")
-        
+
 #     elif args.command == 'collapse':
 #         collapse_pritrans(
-#             args.input_pritrans, args.output_pritrans, 
+#             args.input_pritrans, args.output_pritrans,
 #             args.new_chrom, args.r1_start, args.r1_end, args.r2_start, args.r2_end
 #         )
 #         print(f"Pritrans file collapsed and saved to {args.output_pritrans}")
-        
+
 #     elif args.command == 'crssant':
 #         prepare_crssant(
 #             input_sam=args.input_sam,
