@@ -7,18 +7,26 @@ Python:     python3.10
 Script:     rnaxrna.py
 
 Script re-processes pritrans gapped files to be mapped to a single mini-genome.
-1) Check for STAR and samtools/pysam, input files as FASTA/BAM
-2) Process input files for miniGenome generation
-3) Re-map BAM to mini-genome
-4) Show instructions for running crssant_birch...print med seglen
+I) Check for STAR and samtools/pysam, input files as FASTA/BAM
+Subfunction
+1) Checks for overlapping regions "hotspots" for trans-chromosome reads.
+2) Filters by user-defined chromosomes, based on hotspots.
+
+II) Process input BAM and FASTA files for miniGenome generation
+III) Re-map BAM to mini-genome
+IV) Set up and run CRSSANT_birch to cluster newly mapped reads
 """
 
 ################################################################################
 # Define version
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 # Version notes
 __update_notes__ = """
+2.0.0
+    -   Added filtering function for creating smaller BAM files.
+    -   Added helper function to determine BAM overlaps.
+
 1.0.0
     -   Set up logic and workflow.
     -   Set up a function to check for STAR aligner installation.
@@ -27,8 +35,9 @@ __update_notes__ = """
 ################################################################################
 # Import packages
 from collections import defaultdict
-import argparse
 from datetime import datetime
+import argparse
+import glob
 import math
 import numpy as np
 import os
@@ -45,7 +54,90 @@ def timenow():
     return f"{datetime.now().strftime('%b %d %H:%M:%S')} ---"
 
 
-def filter_bam(input_bam, chrA, chrB, outdir=None):
+def genome_overlaps(bam_path, window=15, min_reads=10):
+    """
+    Identify hotspots (clusters of reads) on each chromosome and 
+    find cross-chromosomal hotspot pairs via read pairs.
+    """
+    bam = pysam.AlignmentFile(bam_path, "rb")
+
+    # 1. Collect read pairs
+    read_positions = {}
+    pairs = {}
+    for read in bam.fetch(until_eof=True):
+        if read.is_unmapped or read.mate_is_unmapped:
+            continue
+        qname = read.query_name
+        chrom = bam.get_reference_name(read.reference_id)
+        pos = read.reference_start
+        if qname not in read_positions:
+            read_positions[qname] = (chrom, pos)
+        else:
+            c1, p1 = read_positions[qname]
+            c2, p2 = chrom, pos
+            pairs[qname] = (c1, p1, c2, p2)
+
+    bam.close()
+    print(f"{timenow()} Collected {len(pairs)} read pairs...")
+
+    # 2. Build hotspots per chromosome
+    chrom_reads = defaultdict(list)
+    for q, (c1, p1, c2, p2) in pairs.items():
+        chrom_reads[c1].append((p1, q))
+        chrom_reads[c2].append((p2, q))
+
+    hotspots = {}
+    print(f"{timenow()} Hotspots found per chromosome...\n")
+    for chrom, positions in chrom_reads.items():
+        positions.sort()
+        clusters = []
+        start, end, names = None, None, set()
+        for pos, q in positions:
+            if start is None:
+                start, end, names = pos, pos, {q}
+                continue
+            if pos - end <= window:
+                end = pos
+                names.add(q)
+            else:
+                if len(names) >= min_reads:
+                    clusters.append((start, end, names))
+                start, end, names = pos, pos, {q}
+        if len(names) >= min_reads:
+            clusters.append((start, end, names))
+        hotspots[chrom] = clusters
+        if (len(clusters) > 0):
+            print(f"\t{chrom}: {len(clusters)}")
+
+    # 3. Link hotspots across chromosomes
+    hotspot_pairs = defaultdict(set)
+    for q, (c1, p1, c2, p2) in pairs.items():
+        h1 = next(((c1, s, e) for s, e, ns in hotspots.get(c1, []) if q in ns), None)
+        h2 = next(((c2, s, e) for s, e, ns in hotspots.get(c2, []) if q in ns), None)
+        if h1 and h2 and h1 != h2:
+            key = tuple(sorted([h1, h2]))
+            hotspot_pairs[key].add(q)
+
+    # 4. Print summary
+    print(f"\nAlignment hotspot pairs (≥{min_reads} reads in each hotspot):\n")
+    print(f"\tReads\tarm1_pos\tarm2_pos")
+
+    if not hotspot_pairs:
+        print("No cross-chromosomal hotspot pairs found")
+    else:
+        sorted_pairs = sorted(
+            [(h1, h2, qnames) for (h1, h2), qnames in hotspot_pairs.items() if len(qnames) >= min_reads],
+            key=lambda x: (x[0][0], x[0][1], x[1][0], x[1][1])
+        )
+        
+        for h1, h2, qnames in sorted_pairs:
+            c1, s1, e1 = h1
+            c2, s2, e2 = h2
+            print(f"\t{len(qnames)}\t{c1}:{s1}-{e1}\t{c2}:{s2}-{e2}")
+    print("\n")
+
+
+def filter_bam(input_bam, chrA, chrB, outdir="./"):
     """
     Filter a BAM file to keep reads mapping between chrA and chrB.
 
@@ -76,12 +168,12 @@ def filter_bam(input_bam, chrA, chrB, outdir=None):
             if (ref == chrA and chrB in sa) or (ref == chrB and chrA in sa):
                 out_bam.write(read)
 
-        print(f"{timenow()} Filtered BAM saved as: {os.path.basename(outname)}")
+        print(f"{timenow()} Filtered BAM saved as: {os.path.basename(outname)}...\n")
 
     return outname
 
 
-def read_fasta(file, out_fasta, out_bed):
+def read_fasta(file, out_fasta, out_bed, gap_len=10):
     """
     Read a FASTA with multiple sequences and merge into one with Ns between.
     Optionally create a BED file with coordinates of each original sequence.
@@ -135,14 +227,19 @@ def read_fasta(file, out_fasta, out_bed):
 
     gene_names = list(genes.keys())
     combined_name = "_".join(gene_names)
-    combined_seq = ("N" * 20).join(genes[name] for name in gene_names)
+    combined_seq = ("N" * gap_len).join(genes[name] for name in gene_names)
 
     print(f"{timenow()} Preparing fasta genes: {combined_name}")
     with open(out_fasta, "w") as fasta:
         fasta.write(f">{combined_name}\n")
         for i in range(0, len(combined_seq), 60):
             fasta.write(combined_seq[i : i + 60] + "\n")
-
+    try:
+        subprocess.run(["samtools", "faidx", out_fasta], check=True)
+        print(f"{timenow()} Indexed FASTA with samtools: {out_fasta}.fai")
+    except subprocess.CalledProcessError:
+        print(f"{timenow()} Failed to index FASTA with samtools: {out_fasta}")
+        
     with open(out_bed, "w") as bed:
         start = 0
         for name in gene_names:
@@ -213,39 +310,38 @@ def mini_genome(ref_fasta, genome_dir, n_threads=1):
     print(f"\n{timenow()} STAR genome index built at {genome_dir}\n")
 
 
-def bam_to_gapped_fastq(bam_file, fastq_out, gap_len=10):
-    """
-    Collapse BAM reads into two-arm gapped FASTQ.
-    If multiple supplementary alignments exist, only the two strongest arms are kept.
-    """
-    bam = pysam.AlignmentFile(bam_file, "rb")
-    out = open(fastq_out, "w")
+def bam_to_gapped_fastq(bam_file, fastq_out):
 
-    read_groups = {}
+    read_groups = defaultdict(list)
+    with pysam.AlignmentFile(bam_file, "rb") as bam:
+        for read in bam.fetch(until_eof=True):
+            if read.is_unmapped:
+                continue
+            read_groups[read.query_name].append(read)
 
-    # Group all alignments by qname
-    for read in bam:
-        if read.is_unmapped:
-            continue
-        qname = read.query_name
-        read_groups.setdefault(qname, []).append(read)
+    with open(fastq_out, "w") as out:
+        for qname, reads in read_groups.items():
+            # Identify left vs right arm by reference coordinate
+            arms = {r.reference_start: r for r in reads if not r.is_unmapped}
+            sorted_arms = sorted(arms.values(), key=lambda r: r.reference_start)
 
-    for qname, group in read_groups.items():
-        if len(group) < 2:
-            continue
+            if len(sorted_arms) == 1:
+                # Only one arm mapped: pad with N equal to the other arm's
+                r1 = sorted_arms[0]
+                r2_seq = "N" * len(r1.query_sequence)
+                r2_qual = "!" * len(r1.query_sequence)
+            else:
+                r1, r2 = sorted_arms[:2]
+                r2_seq = r2.query_sequence
+                r2_qual = "".join(chr(q + 33) for q in r2.query_qualities)
 
-        group.sort(key=lambda r: r.query_alignment_length, reverse=True)
-        r1, r2 = group[:2]
+            seq = r1.query_sequence + r2.query_sequence
+            qual = (
+                "".join(chr(q + 33) for q in r1.query_qualities)
+                + "".join(chr(q + 33) for q in r2.query_qualities)
+            )
 
-        seq = r1.query_sequence + r2.query_sequence
-        qual = "".join(chr(q + 33) for q in r1.query_qualities) + "".join(
-            chr(q + 33) for q in r2.query_qualities
-        )
-
-        out.write(f"@{qname}\n{seq}\n+\n{qual}\n")
-
-    bam.close()
-    out.close()
+            out.write(f"@{qname}\n{seq}\n+\n{qual}\n")
 
 
 def map_to_minigenome(combined_fastq, genome_dir, n_threads=8, out_prefix=None):
@@ -283,7 +379,7 @@ def map_to_minigenome(combined_fastq, genome_dir, n_threads=8, out_prefix=None):
         "--scoreGapGCAG", "0",
         "--scoreGapATAC", "0",
         "--scoreGenomicLengthLog2scale", "-1",
-        "--chimOutType", "WithinBAM", "HardClip",
+        "--chimOutType", "WithinBAM", "HardClip"
         "--chimSegmentMin", "5",
         "--chimJunctionOverhangMin", "1",
         "--chimScoreJunctionNonGTAG", "0",
@@ -312,10 +408,39 @@ def map_to_minigenome(combined_fastq, genome_dir, n_threads=8, out_prefix=None):
 
 
 def cleanup(outdir, out_prefix):
-    os.remove(f"{outdir}/{out_prefix}.fastq")
-    os.remove(f"Log.out")
-    for suffix in ["Log.out", "Log.progress.out", "SJ.out.tab", "Unmapped.out.mate1"]:
-        os.remove(f"{outdir}/{out_prefix}_{suffix}")
+    """
+    Remove intermediate files generated by STAR and rnaxrna workflow.
+    Handles FASTQ, log files, STAR BAM, and STAR temporary directories.
+    Ignores NFS transient files gracefully.
+    """
+    files_to_remove = [
+        f"{outdir}/{out_prefix}.fastq",
+        f"./Log.out",
+        f"{outdir}/{out_prefix}_Log.out",
+        f"{outdir}/{out_prefix}_Log.progress.out",
+        f"{outdir}/{out_prefix}_SJ.out.tab",
+        f"{outdir}/{out_prefix}_Unmapped.out.mate1",
+        f"{outdir}/{out_prefix}_Aligned.sortedByCoord.out.bam"
+    ]
+
+    for f in files_to_remove:
+        try:
+            if os.path.exists(f):
+                os.remove(f)
+        except FileNotFoundError:
+            pass  # NFS or transient deletion issues
+
+    # Remove STAR temporary directory
+    star_tmp_dirs = [
+        os.path.join(outdir, f"{out_prefix}__STARtmp")  # double underscore
+    ]
+
+    for tmp_dir in star_tmp_dirs:
+        if os.path.exists(tmp_dir):
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception as e:
+                print(f"Warning: failed to remove {tmp_dir}: {e}")
 
 
 def get_segment_lengths(bam_file):
@@ -362,7 +487,7 @@ def crssant_birch(bam_file, bed_file, outdir, n_threads, seglen_median):
     """
 
     # Derive output paths from input prefix
-    print(f"{timenow()} Median seglen used for CRSSANT_birch: {seglen_median}")
+    print(f"{timenow()} Median seglen for CRSSANT_birch: {seglen_median}\n")
 
 
 def parse_arguments():
@@ -371,35 +496,42 @@ def parse_arguments():
     """
     parser = argparse.ArgumentParser(
         description="Process RNA-RNA interaction data for CRSSANT clustering.",
+        usage=(" rnaxrna.py --bam BAM" 
+            "\n\t[--overlap] MIN_READS"
+            "\n\t[--filter CHR_A CHR_B] "
+            "\n\t[--fasta FASTA [other flags]]"
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
+    # Always required, positional argument
     parser.add_argument(
-        "--fasta",
-        "-f",
-        help="Input FASTA file containing sequences to merge into a mini-genome.",
-    )
-    parser.add_argument(
-        "--bam",
-        "-b",
-        required=True,
+        "bam_file",
         help="Input BAM file containing trans-paired reads to convert into gapped FASTQ.",
     )
+
+    # Optional function flags
     parser.add_argument(
-        "--outdir",
-        "-o",
-        default="./rnaxrna_out",
-        help="Output directory for mini-genome and mapping results.",
-    )
-    parser.add_argument(
-        "--prefix", "-p", default="rnaxrna", help="Prefix for STAR output files."
-    )
-    parser.add_argument(
-        "--gap-len",
-        "-g",
+        "--overlap",
+        nargs="?",
         type=int,
-        default=20,
-        help="Number of Ns to insert between paired reads in recombined FASTQ.",
+        metavar="NUM_READS",
+        const=10,
+        default=None,
+        help="SUB-FUNCTION 1: Checks BAM coverage per genomic region.",
+    )
+    parser.add_argument(
+        "--filter",
+        nargs=2,
+        metavar=("CHR_A", "CHR_B"),
+        help="SUB-FUNCTION 2: Filter BAM for reads connecting CHR_A and CHR_B.",
+    )
+
+    # Supplementary flags
+    parser.add_argument(
+        "--fasta",
+        "-fa",
+        help="Input FASTA file containing sequences to merge into a mini-genome.",
     )
     parser.add_argument(
         "--threads",
@@ -409,31 +541,49 @@ def parse_arguments():
         help="Number of threads for STAR (auto-detected if not provided).",
     )
     parser.add_argument(
+        "--outdir",
+        "-o",
+        default="./",
+        help="Output directory for mini-genome and mapping results.",
+    )
+    parser.add_argument(
+        "--prefix", "-p", help="Prefix for STAR output."
+    )
+    parser.add_argument(
+        "--gap-len",
+        "-g",
+        type=int,
+        default=10,
+        help="Number of Ns to insert between paired reads in recombined FASTQ.",
+    )
+    parser.add_argument(
         "--keep-temp",
         action="store_true",
         help="Keep intermediate files (default: remove).",
     )
     parser.add_argument(
-        "--filter",
-        nargs=2,
-        metavar=("CHR_A", "CHR_B"),
-        help="Filter BAM to reads connecting CHR_A and CHR_B.",
-    )
-    parser.add_argument(
         "--version", "-v", action="version", version=f"%(prog)s {__version__}"
     )
+    args = parser.parse_args()
 
-    return parser.parse_args()
+    # Conditional validation after parsing
+    if not args.filter and not args.overlap and not args.fasta:
+        parser.error("fasta is required when not using either of the subfunctions --filter/--overlap")
 
+    return args
+    
 
 ################################################################################
 # Execute main
 def main():
     args = parse_arguments()
     outdir = args.outdir
-    prefix = args.prefix
     fasta_file = args.fasta
-    bam_file = args.bam
+    bam_file = args.bam_file
+    if args.prefix:
+        prefix = args.prefix
+    else:
+        prefix = os.path.basename(bam_file).replace("_filtered", "").rsplit(".", 1)[0]
     gap_len = args.gap_len
     keep_temp = args.keep_temp
 
@@ -450,7 +600,10 @@ def main():
         n_threads = args.threads
     print(f"{timenow()} Using {n_threads} CPUs for processing.")
 
-    # If filter is requested, run BAM filter and exit
+    if args.overlap:
+        genome_overlaps(bam_file, 100, args.overlap)
+        return
+
     if args.filter:
         chrA, chrB = args.filter
         os.makedirs(outdir, exist_ok=True)
@@ -466,10 +619,10 @@ def main():
     pri_bam = os.path.join(outdir, f"{prefix}_pri.bam")
 
     # Workflow
-    read_fasta(fasta_file, combined_fasta_file, bed_file)
+    read_fasta(fasta_file, combined_fasta_file, bed_file, gap_len)
     check_star()
     mini_genome(combined_fasta_file, genome_dir, n_threads)
-    bam_to_gapped_fastq(bam_file, fastq_out, gap_len=gap_len)
+    bam_to_gapped_fastq(bam_file, fastq_out)
     map_to_minigenome(
         fastq_out,
         genome_dir,
