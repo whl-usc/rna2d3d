@@ -2,16 +2,18 @@
 
 """
 Contact:    wlee9829@gmail.com
-Date:       2025_07_31
+Date:       2025_12_18
 Python:     python3.10
 Script:     CountCdsUtr.py
 """
 ################################################################################
 # Define version
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # Version notes
 __update_notes__ = """
+1.3.0
+    -   Added automatic handling for paired-end reads. 
 1.2.0
     -   Adjust biotypes to be by unique read counts.
 1.1.0
@@ -40,19 +42,51 @@ def get_time():
 
 # 1. Process the BAM file
 def bam2bed(input_bam, output_bed):
-    print(f"{get_time()}\tConverting BAM to BED file using bedtools...")
+    """
+    Convert BAM to BED (single-end or paired-end automatically)
+    Returns number of unique fragments/reqds.
+    """
+    print(f"{get_time()}\tChecking for read pairs...")
+    try: 
+        check = subprocess.run(
+            ["samtools", "view", "-c", "-f", "1", input_bam],
+            capture_output=True, text=True, check=True
+        )
+        paired = int(check.stdout.strip()) > 0
+
+    except subprocess.CalledProcessError:
+        print(f"{get_time()}\tError checking BAM for paired-end reads. Assuming single-end.")
+        paired = False
+
+    temp_bam = input_bam
+    if paired:
+        print(f"{get_time()}\tPaired-end BAM detected. Name-sorting BAM for BEDPE...")
+        # Create a temporary name-sorted BAM
+        temp_bam = output_bed + ".namesorted.bam"
+        subprocess.run(["samtools", "sort", "-n", "-o", temp_bam, input_bam], check=True)
+        subprocess.run(["samtools", "index", temp_bam], check=True)
 
     temp_unsorted = output_bed + ".unsorted"
 
-    with open(temp_unsorted, "w") as out:
-        subprocess.run(
-            ["bedtools", "bamtobed", "-i", input_bam, "-split"], stdout=out, check=True
-        )
+    print(f"{get_time()}\tConverting BAM to BED file using bedtools...")
+    # Bedtools command
+    bedtools_cmd = ["bedtools", "bamtobed", "-i", input_bam]
+    if paired:
 
+        bedtools_cmd.append("-bedpe")   # fragment-level BED for paired-end
+        print(f"{get_time()}\tDetected paired-end BAM; using BEDPE output.")
+    else:
+        bedtools_cmd.append("-split")    # single-end BED
+        print(f"{get_time()}\tDetected single-end BAM; using normal BED output.")
+
+    # Run bedtools
+    with open(temp_unsorted, "w") as out:
+        subprocess.run(bedtools_cmd, stdout=out, check=True)
+
+    # Sort BED
+    sort_cmd = f"sort -k1,1 -k2,2n {temp_unsorted}"
     with open(output_bed, "w") as sorted_out:
-        subprocess.run(
-            ["sort", "-k1,1", "-k2,2n", temp_unsorted], stdout=sorted_out, check=True
-        )
+        subprocess.run(sort_cmd, shell=True, stdout=sorted_out, check=True)
 
     read_ids = set()
     with open(output_bed) as f:
@@ -61,7 +95,8 @@ def bam2bed(input_bam, output_bed):
             if len(fields) >= 4:
                 read_ids.add(fields[3])
     os.remove(temp_unsorted)
-
+    print(f"{get_time()}\tProcessed {len(read_ids)} unique reads/fragments.")
+    
     return len(read_ids)
 
 
